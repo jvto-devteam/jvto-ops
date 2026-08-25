@@ -1,0 +1,14 @@
+{
+  "@graph": [
+    { "@id": "https://x.test/entity/#org-polpar-bondowoso", "@type": "GovernmentOrganization", "name": "Polisi Pariwisata (POLPAR) Bondowoso" },
+    {
+      "@id": "https://x.test/#sam",
+      "@type": "Person",
+      "worksFor": [
+        { "@id": "https://x.test/#org" },
+        { "@type": "GovernmentOrganization", "name": "Polisi Pariwisata (POLPAR) Bondowoso", "url": "https://polri.go.id" }
+      ]
+    },
+    { "@id": "https://x.test/#org", "@type": "Organization", "name": "X" }
+  ]
+}

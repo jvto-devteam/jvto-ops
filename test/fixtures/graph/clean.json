@@ -1,0 +1,6 @@
+{
+  "@graph": [
+    { "@id": "https://x.test/#org", "@type": "Organization", "name": "X", "founder": { "@id": "https://x.test/#sam" } },
+    { "@id": "https://x.test/#sam", "@type": "Person", "name": "Sam", "worksFor": { "@id": "https://x.test/#org" } }
+  ]
+}

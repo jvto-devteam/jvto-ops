@@ -1,0 +1,7 @@
+{
+  "@graph": [
+    { "@id": "https://x.test/entity/#org-dumont", "@type": "Organization", "name": "DuMont Reiseverlag" },
+    { "@id": "https://x.test/#org", "@type": "Organization", "name": "X", "publisher": { "@id": "https://x.test/entity/#org-dumont-reiseverlag" } },
+    { "@id": "https://x.test/#page", "@type": "WebPage", "url": "https://x.test/only-a-url" }
+  ]
+}
