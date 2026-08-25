@@ -9,8 +9,8 @@ renders it), and can additionally help with `jvto-platform` when that repo is pr
 
 ## Why this exists
 
-25 npm scripts exist across `jvto-ekosistem` and `jvto-web`, and only 20 of them are wired
-into CI or a deploy step. The other five run only when someone remembers to run them by
+36 npm scripts exist across `jvto-ekosistem` (22) and `jvto-web` (14), and only 20 of them
+are referenced by a workflow. The other 16 run only when someone remembers to run them by
 hand, which in practice means they drift.
 
 Two of those orphans currently report false failures because the code and the policy they
@@ -20,8 +20,8 @@ it now finds nothing and reports drift that isn't there. `audit:geo-visibility` 
 assertion `ai-train=no` in its own source, but the owner changed that policy to
 `ai-train=yes` on 2026-08-18 in commit `904e8219` — the checker has been contradicting a
 six-day-old decision ever since. Separately, `jvto-web/.github/workflows/ci.yml` calls
-`npm run sync:trust`, a script that is not defined in that package's `package.json`; that CI
-job has failed on every run since 2026-08-19.
+`npm run sync:trust`: the last green run of that workflow was 2026-08-11, and the script it
+calls stopped existing on 2026-08-15, removed from `package.json` in commit `1542fb08`.
 
 None of these are exotic failures — they are what happens when a script's assumptions and
 the codebase's reality are allowed to diverge silently. The plugin's job is to wire, guard,
@@ -80,7 +80,7 @@ plugin itself changes only when the operational rules change. Its shape is docum
 ## Development
 
 ```bash
-node --test test/
+node --test
 claude plugin validate .
 claude plugin tag .
 ```

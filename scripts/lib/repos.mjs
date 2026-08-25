@@ -4,6 +4,9 @@
 // src/lib/ecosystemContent/*.ts: an explicit env var wins, otherwise assume a
 // sibling checkout next to the current working directory. Nothing here writes
 // to those repos — checkers report, skills edit.
+//
+// Precedence for every root getter: an explicit `--repo-root` override (see
+// `rootOverride`), then the env var, then the sibling-checkout default.
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -17,16 +20,26 @@ function sibling(name) {
   return path.resolve(process.cwd(), "..", name);
 }
 
-export function ekosystemRoot() {
-  return process.env[ENV.ekosistem] ?? sibling("jvto-ekosistem");
+/**
+ * Reads `--repo-root <path>` from argv so every checker can accept the same
+ * flag without re-parsing it. Returns the resolved absolute path, or `null`
+ * when the flag is absent (or has no value after it).
+ */
+export function rootOverride(argv = process.argv.slice(2)) {
+  const i = argv.indexOf("--repo-root");
+  return i !== -1 && argv[i + 1] ? path.resolve(argv[i + 1]) : null;
 }
 
-export function webRoot() {
-  return process.env[ENV.web] ?? sibling("jvto-web");
+export function ekosystemRoot(override) {
+  return override ?? process.env[ENV.ekosistem] ?? sibling("jvto-ekosistem");
 }
 
-export function platformRoot() {
-  const dir = process.env[ENV.platform] ?? sibling("jvto-platform");
+export function webRoot(override) {
+  return override ?? process.env[ENV.web] ?? sibling("jvto-web");
+}
+
+export function platformRoot(override) {
+  const dir = override ?? process.env[ENV.platform] ?? sibling("jvto-platform");
   return existsSync(dir) ? dir : null;
 }
 
