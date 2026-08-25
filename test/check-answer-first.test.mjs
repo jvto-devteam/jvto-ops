@@ -20,7 +20,13 @@ test("literal volatile numbers are flagged with the token that replaces them", (
   const messages = checkAnswerFirst(load("literal-numbers"), "x.source.json").map((f) => f.message);
   assert.ok(messages.some((m) => m.includes("{GOOGLE_REVIEW_COUNT}")));
   assert.ok(messages.some((m) => m.includes("{PRICE_FROM}")));
-  assert.ok(messages.some((m) => m.includes("{PACKAGE_COUNT}")));
+  // The "private itineraries" rule deliberately never names {PACKAGE_COUNT}:
+  // that token is the catalogue-wide total, but this rule also fires on a
+  // per-origin count (a different, smaller number), so the message flags
+  // the literal without prescribing a token that might not fit.
+  assert.ok(
+    messages.some((m) => /private itineraries/.test(m) && !m.includes("{PACKAGE_COUNT}")),
+  );
 });
 
 test("fluff adjectives are named individually", () => {

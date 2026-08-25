@@ -57,19 +57,54 @@ const VOLATILE_LITERALS = [
   { re: /\b\d{2,4}\s+Google reviews\b/gi, token: "{GOOGLE_REVIEW_COUNT}" },
   { re: /\b\d\.\d\s*\/\s*5\b/g, token: "{GOOGLE_RATING}" },
   { re: /\bIDR\s*[\d.]+\s*M\/pax\b/gi, token: "{PRICE_FROM}" },
-  { re: /\b\d{1,3}\s+private itineraries\b/gi, token: "{PACKAGE_COUNT}" },
+  {
+    // Deliberately no `token` here. {PACKAGE_COUNT} is the catalogue-wide
+    // total, but this pattern also fires on a per-origin count (e.g. "13
+    // private itineraries from Surabaya"), which is a different, smaller
+    // number. Naming {PACKAGE_COUNT} unconditionally would tell an author to
+    // publish the wrong figure, so the message names the problem and asks
+    // for a live token without prescribing which one.
+    re: /\b\d{1,3}\s+private itineraries\b/gi,
+    message: (match) =>
+      `Volatile number "${match}" is written as a literal — this count moves as packages are added or removed and needs a live token, but the catalogue-wide total is a different number: do not assume it fits here.`,
+  },
 ];
 
 function escapeRegex(literal) {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Spelled-out cardinals one through twenty. Counted as a fact only when they
+// immediately precede another word (a noun) — "three explainers" is the same
+// quantified claim as "3 explainers"; "one" standing alone, or followed by a
+// stopword that signals it isn't modifying a noun (e.g. "one of", "10
+// million" already covered by the currency pattern), is not.
+const CARDINAL_WORDS = [
+  "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+  "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+  "seventeen", "eighteen", "nineteen", "twenty",
+];
+const CARDINAL_STOPWORDS = new Set([
+  "of", "is", "are", "was", "were", "the", "a", "an", "that", "which", "who",
+  "more", "less", "than", "hundred", "thousand", "million", "billion", "or",
+  "and", "to", "in", "on", "at", "for", "from", "with", "percent",
+]);
+const CARDINAL_RE = new RegExp(
+  `\\b(?:${CARDINAL_WORDS.join("|")})\\s+([a-z]+)\\b`,
+  "gi",
+);
+
 const FACT_PATTERNS = [
   // A number with a unit: m, km, kg, mdpl, minutes/hours/days/nights, pax, %, IDR, Rp.
   // Trailing lookahead (not \b) because "%" isn't a word character, so a
   // word boundary assertion right after it never fires.
   /\b\d[\d,.]*\s*(?:m|km|kg|mdpl|minutes?|hours?|days?|nights?|pax|%)(?![A-Za-z])/gi,
+  // Unit-first currency, number attached directly to the unit (IDR 1.55M).
   /\b(?:IDR|Rp)\s*[\d,.]+[A-Za-z]*\b/gi,
+  // Unit-first currency with a spelled-out magnitude word (IDR 10 million,
+  // Rp 50 juta) — still "a number with a unit," just unit-first with the
+  // number and unit separated by the magnitude word instead of touching.
+  /\b(?:IDR|Rp)\s*[\d,.]+\s+(?:million|billion|juta|miliar)\b/gi,
   // ISO date.
   /\b\d{4}-\d{2}-\d{2}\b/g,
   // Month YYYY.
@@ -102,6 +137,11 @@ function countDistinctFacts(text) {
   const matches = new Set();
   for (const pattern of FACT_PATTERNS) {
     for (const m of text.matchAll(pattern)) {
+      matches.add(m[0]);
+    }
+  }
+  for (const m of text.matchAll(CARDINAL_RE)) {
+    if (!CARDINAL_STOPWORDS.has(m[1].toLowerCase())) {
       matches.add(m[0]);
     }
   }
@@ -147,15 +187,12 @@ export function checkAnswerFirst(text, filePath) {
     }
   }
 
-  for (const { re, token } of VOLATILE_LITERALS) {
-    for (const m of text.matchAll(re)) {
-      findings.push(
-        finding(
-          "error",
-          filePath,
-          `Volatile number "${m[0]}" is written as a literal — replace with the token ${token}.`,
-        ),
-      );
+  for (const rule of VOLATILE_LITERALS) {
+    for (const m of text.matchAll(rule.re)) {
+      const message = rule.token
+        ? `Volatile number "${m[0]}" is written as a literal — replace with the token ${rule.token}.`
+        : rule.message(m[0]);
+      findings.push(finding("error", filePath, message));
     }
   }
 
