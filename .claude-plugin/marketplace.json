@@ -1,0 +1,13 @@
+{
+  "name": "jvto-ops",
+  "description": "JVTO operational tooling for Claude Code",
+  "owner": { "name": "JVTO Dev Team" },
+  "plugins": [
+    {
+      "name": "jvto-ops",
+      "description": "Operational rules for the JVTO content ecosystem, as skills that create and repair.",
+      "version": "0.1.0",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+node_modules/
+.answer-audit/
+*.log
+.DS_Store
