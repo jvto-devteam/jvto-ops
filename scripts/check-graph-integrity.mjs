@@ -22,11 +22,23 @@
 // which carries the identical exemption for the identical reason). Reading
 // the ekosistem half in isolation makes those edges look dangling. That's
 // not a URL-value predicate and not cross-document resolution — it's a
-// cross-REPO seam — so it gets its own mechanism: scripts/consumer-defined-ids.json
-// lists exactly which ids jvto-web builds and merges, reviewably, and the
-// CLI wrapper seeds them into the graph as synthetic definitions — but only
-// for the offline scan. In --live mode the full merged graph is visible, so
-// a genuinely dangling id (including a mistyped one of these) still fails.
+// cross-REPO seam — so it gets its own mechanism: scripts/consumer-defined-ids.json,
+// reviewably listing exactly which ids (or id patterns) jvto-web builds and
+// merges, in two shapes:
+//   - `ids` — a literal id, for a single stable node (the founder). Seeded
+//     into the graph as a synthetic definition before collectGraph() runs,
+//     so it resolves the same way any other cross-document reference does.
+//   - `patterns` — an idPattern plus onlyUnderPredicates, for a whole class
+//     of ids that would otherwise rot into a per-item list (the 17-and-
+//     counting tour-PDP #webpage ids). Unlike `ids`, this can't be expressed
+//     as a synthetic definition, because onlyUnderPredicates has to look at
+//     which predicate carried the reference — the same id under a
+//     different predicate is a real dangling reference, not this exemption
+//     — so it's applied inside checkGraph() itself, against the collected
+//     edges, not the docs.
+// Both are seeded only for the offline scan. In --live mode the full merged
+// graph is visible, so a genuinely dangling id (including a mistyped one of
+// these) still fails.
 //
 // Pure logic lives in collectGraph()/checkGraph() so tests can call them
 // directly with parsed JSON-LD, no I/O. The CLI wrapper below reads the
@@ -145,17 +157,44 @@ export function collectGraph(docs) {
 }
 
 /**
- * Checks a collected graph for the two error classes this checker exists
- * for. Pure — takes the object collectGraph() returns, does no I/O.
+ * Compiles the `patterns` half of a consumer-defined-ids config into
+ * matchers checkGraph() can test an edge against. Kept separate from
+ * checkGraph() so a bad regex in the config fails once, at load time, with
+ * a clear culprit, rather than repeatedly deep inside the dangling-edge loop.
  */
-export function checkGraph(graph) {
+function compileExemptPatterns(patterns = []) {
+  return patterns.map((p) => ({
+    regex: new RegExp(p.idPattern),
+    predicates: new Set(p.onlyUnderPredicates ?? []),
+  }));
+}
+
+/**
+ * Checks a collected graph for the two error classes this checker exists
+ * for, plus (optionally) the cross-repo `patterns` exemptions from
+ * consumer-defined-ids.json. Pure — takes the object collectGraph()
+ * returns and a pre-compiled matcher list, does no I/O.
+ *
+ * `exemptPatterns` is deliberately not applied to `defined` the way the
+ * `ids` list is (see consumerExemptionDocs()): each matcher is scoped to
+ * specific predicates, so the same @id is exempt under one predicate and
+ * still a real dangling reference under another. That can only be decided
+ * per-edge, against edges' own predicate, which is why this checks edges
+ * directly instead of pre-seeding a node definition.
+ */
+export function checkGraph(graph, { exemptPatterns = [] } = {}) {
   const { defined, edges, namesById, inlineNamed } = graph;
   const findings = [];
+
+  function isPatternExempt(pred, dst) {
+    return exemptPatterns.some((p) => p.predicates.has(pred) && p.regex.test(dst));
+  }
 
   const predsByDst = new Map();
   for (const { pred, dst } of edges) {
     if (defined.has(dst)) continue;
     if (!isOwnedId(dst)) continue; // external URL, not a registry node
+    if (isPatternExempt(pred, dst)) continue;
     if (!predsByDst.has(dst)) predsByDst.set(dst, new Set());
     predsByDst.get(dst).add(pred);
   }
@@ -186,33 +225,67 @@ export function checkGraph(graph) {
 
 /**
  * Reads scripts/consumer-defined-ids.json: a reviewable list of @id values
- * that jvto-web builds at render time and merges into the same combined
- * @graph, which the offline scan — reading only the ekosistem half — would
- * otherwise report as dangling. Returns { ids: [...] }, or { ids: [] } if
- * the file is missing or malformed, so a missing file degrades to "no
- * consumer exemptions" rather than crashing the checker.
+ * and @id patterns that jvto-web builds at render time and merges into the
+ * same combined @graph, which the offline scan — reading only the
+ * ekosistem half — would otherwise report as dangling. Returns
+ * { ids: [...], patterns: [...] }, or the empty form of both if the file is
+ * missing or malformed, so a missing file degrades to "no consumer
+ * exemptions" rather than crashing the checker.
  */
 export function loadConsumerDefinedIds(filePath) {
   try {
     const data = JSON.parse(readFileSync(filePath, "utf8"));
-    return { ids: Array.isArray(data.ids) ? data.ids : [] };
+    return {
+      ids: Array.isArray(data.ids) ? data.ids : [],
+      patterns: Array.isArray(data.patterns) ? data.patterns : [],
+    };
   } catch {
-    return { ids: [] };
+    return { ids: [], patterns: [] };
   }
 }
 
 /**
- * Turns a consumer-defined-ids config into synthetic documents that make
- * each listed id "defined" via the exact same has-@id-plus-another-key rule
- * collectGraph already uses for everything else — no special-casing inside
- * collectGraph/checkGraph, and so no risk to the two exemptions that make
- * this checker safe to block on. Pure — takes the parsed config, does no
- * I/O — so tests can exercise it with a fixture instead of the real file.
+ * Turns the `ids` half of a consumer-defined-ids config into synthetic
+ * documents that make each listed id "defined" via the exact same
+ * has-@id-plus-another-key rule collectGraph already uses for everything
+ * else — no special-casing inside collectGraph/checkGraph, and so no risk
+ * to the two exemptions that make this checker safe to block on. Pure —
+ * takes the parsed config, does no I/O — so tests can exercise it with a
+ * fixture instead of the real file.
+ *
+ * Deliberately ignores `patterns`: those are predicate-scoped
+ * (onlyUnderPredicates), which a synthetic definition can't express — a
+ * definition resolves a reference under any predicate, but a pattern must
+ * resolve one only under specific predicates and still flag the same id
+ * under any other. See checkGraph()'s exemptPatterns handling instead.
  */
 export function consumerExemptionDocs(config) {
   const ids = (config.ids ?? []).map((entry) => entry.id).filter((id) => typeof id === "string");
   if (ids.length === 0) return [];
   return [{ "@graph": ids.map((id) => ({ "@id": id, "@type": "Thing" })) }];
+}
+
+/**
+ * Decides what actually reaches collectGraph()/checkGraph(): whether the
+ * consumer-defined-ids exemptions apply at all. This is the seam a broken
+ * refactor would most easily slip past — e.g. seeding exemptions in both
+ * modes, or in neither — so it's pulled out and exported specifically to be
+ * testable on its own, independent of file I/O or network fetches. `docs` is
+ * whatever main() already loaded (offline files or live ld+json blocks);
+ * `exemptions` is a loadConsumerDefinedIds()-shaped config.
+ *
+ * In --live mode, exemptions never apply: the fetched graph is already the
+ * full merge of both repos, so a genuinely dangling id — including a
+ * mistyped one of these — must still fail there.
+ */
+export function resolveScanInputs({ live, docs, exemptions }) {
+  if (live) {
+    return { docs, exemptPatterns: [] };
+  }
+  return {
+    docs: [...docs, ...consumerExemptionDocs(exemptions)],
+    exemptPatterns: compileExemptPatterns(exemptions.patterns),
+  };
 }
 
 function findSchemaOutputFiles(dir) {
@@ -287,24 +360,24 @@ async function main() {
   const override = rootOverride(argv);
   const live = argv.includes("--live");
 
-  let docs;
+  let rawDocs;
   if (live) {
     const web = requireRepo("web", webRoot(override));
-    docs = await loadLiveDocs(web);
-    // No consumer-defined-ids seeding here: the live fetch already returns
-    // the fully merged graph (ekosistem + jvto-web), so a genuinely
-    // dangling id — including a mistyped one of the ids in that file —
-    // must still fail.
+    rawDocs = await loadLiveDocs(web);
   } else {
     const root = ekosystemRoot(override);
     requireRepo("ekosistem", root);
-    docs = loadOfflineDocs(root);
-    const consumerConfig = loadConsumerDefinedIds(CONSUMER_DEFINED_IDS_PATH);
-    docs.push(...consumerExemptionDocs(consumerConfig));
+    rawDocs = loadOfflineDocs(root);
   }
 
+  // Loaded unconditionally, in both modes — resolveScanInputs() is the one
+  // place that decides whether it applies, so that's the one place a broken
+  // refactor has to break, and the one place the test below has to cover.
+  const exemptions = loadConsumerDefinedIds(CONSUMER_DEFINED_IDS_PATH);
+  const { docs, exemptPatterns } = resolveScanInputs({ live, docs: rawDocs, exemptions });
+
   const graph = collectGraph(docs);
-  const findings = checkGraph(graph);
+  const findings = checkGraph(graph, { exemptPatterns });
 
   process.exit(report("check-graph-integrity", findings, argv));
 }

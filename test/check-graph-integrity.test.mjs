@@ -6,6 +6,7 @@ import {
   checkGraph,
   loadConsumerDefinedIds,
   consumerExemptionDocs,
+  resolveScanInputs,
 } from "../scripts/check-graph-integrity.mjs";
 
 const load = (name) =>
@@ -44,14 +45,15 @@ test("a node defined on one document and referenced from another resolves", () =
   assert.deepEqual(checkGraph(collectGraph([a, b])), []);
 });
 
-// Pins the cross-repo seam: an id jvto-web builds and merges at render time
-// (per test/fixtures/graph/consumer-defined-ids.fixture.json, not the real
-// scripts/consumer-defined-ids.json) must not be reported in the default
-// (offline) scan, because consumerExemptionDocs() seeds it as defined — but
-// the exact same graph, checked without that seeding (as --live does, since
-// there the fetched graph is already fully merged), must still report it.
-test("a consumer-defined id is exempt in the default scan but dangling without the exemption", () => {
-  const config = loadConsumerDefinedIds(fixturePath("consumer-defined-ids.fixture.json"));
+// Pins the cross-repo seam end to end, through resolveScanInputs() — the
+// exact seam main() calls, not just the primitives underneath it. A refactor
+// that moved the exemption-seeding line out of the offline branch, or that
+// leaked it into the live branch, would show up here even though it would
+// pass every test that only calls checkGraph()/consumerExemptionDocs()
+// directly.
+const CONSUMER_FIXTURE = loadConsumerDefinedIds(fixturePath("consumer-defined-ids.fixture.json"));
+
+test("resolveScanInputs seeds the literal-id exemption offline, not live", () => {
   const doc = {
     "@graph": [
       {
@@ -63,17 +65,71 @@ test("a consumer-defined id is exempt in the default scan but dangling without t
     ],
   };
 
-  const liveFindings = checkGraph(collectGraph([doc]));
+  const offline = resolveScanInputs({ live: false, docs: [doc], exemptions: CONSUMER_FIXTURE });
+  const offlineFindings = checkGraph(collectGraph(offline.docs), { exemptPatterns: offline.exemptPatterns });
+  assert.ok(!offlineFindings.some((f) => f.message.includes("#consumer-built-founder")));
+
+  const live = resolveScanInputs({ live: true, docs: [doc], exemptions: CONSUMER_FIXTURE });
+  const liveFindings = checkGraph(collectGraph(live.docs), { exemptPatterns: live.exemptPatterns });
   const dangling = liveFindings.filter((f) => /never defined/.test(f.message));
   assert.equal(dangling.length, 1);
   assert.ok(dangling[0].message.includes("#consumer-built-founder"));
+});
 
-  const offlineFindings = checkGraph(collectGraph([doc, ...consumerExemptionDocs(config)]));
-  assert.ok(!offlineFindings.some((f) => f.message.includes("#consumer-built-founder")));
+// The pattern class (the tour-PDP #webpage ids) exists specifically because
+// a per-route id list rots: every package added or removed in ekosistem
+// would need a matching edit in this plugin, and the first missed edit
+// falsely blocks a correct push. onlyUnderPredicates keeps the pattern from
+// being a hole: the same id under a different predicate is still checked.
+test("resolveScanInputs' pattern exemption is scoped to onlyUnderPredicates, and only offline", () => {
+  const matchingId = "https://x.test/tours/ijen-bromo-3d2n#webpage";
+
+  const scopedDoc = {
+    "@graph": [
+      {
+        "@id": "https://x.test/tours/ijen-bromo-3d2n#tour",
+        "@type": "TouristTrip",
+        "name": "Tour",
+        "mainEntityOfPage": { "@id": matchingId },
+      },
+    ],
+  };
+  const offlineScoped = resolveScanInputs({ live: false, docs: [scopedDoc], exemptions: CONSUMER_FIXTURE });
+  const offlineScopedFindings = checkGraph(collectGraph(offlineScoped.docs), {
+    exemptPatterns: offlineScoped.exemptPatterns,
+  });
+  assert.ok(!offlineScopedFindings.some((f) => f.message.includes(matchingId)));
+
+  // Same id, different predicate — the pattern must not swallow this one.
+  const wrongPredicateDoc = {
+    "@graph": [
+      {
+        "@id": "https://x.test/tours/ijen-bromo-3d2n#tour",
+        "@type": "TouristTrip",
+        "name": "Tour",
+        "about": { "@id": matchingId },
+      },
+    ],
+  };
+  const offlineWrongPred = resolveScanInputs({ live: false, docs: [wrongPredicateDoc], exemptions: CONSUMER_FIXTURE });
+  const offlineWrongPredFindings = checkGraph(collectGraph(offlineWrongPred.docs), {
+    exemptPatterns: offlineWrongPred.exemptPatterns,
+  });
+  assert.ok(offlineWrongPredFindings.some((f) => f.message.includes(matchingId) && /never defined/.test(f.message)));
+
+  // Same id, right predicate, but live — the pattern must not apply there
+  // either, since the fetched graph is already the full merge.
+  const live = resolveScanInputs({ live: true, docs: [scopedDoc], exemptions: CONSUMER_FIXTURE });
+  const liveFindings = checkGraph(collectGraph(live.docs), { exemptPatterns: live.exemptPatterns });
+  assert.ok(liveFindings.some((f) => f.message.includes(matchingId) && /never defined/.test(f.message)));
 });
 
 test("loadConsumerDefinedIds degrades to no exemptions when the file is missing", () => {
   const config = loadConsumerDefinedIds(fixturePath("does-not-exist.json"));
-  assert.deepEqual(config, { ids: [] });
+  assert.deepEqual(config, { ids: [], patterns: [] });
   assert.deepEqual(consumerExemptionDocs(config), []);
+  assert.deepEqual(resolveScanInputs({ live: false, docs: [], exemptions: config }), {
+    docs: [],
+    exemptPatterns: [],
+  });
 });

@@ -1,10 +1,18 @@
 {
-  "_comment": "Fixture for the pinning test — not the real scripts/consumer-defined-ids.json.",
+  "_comment": "Fixture for the pinning tests — not the real scripts/consumer-defined-ids.json.",
   "ids": [
     {
       "id": "https://x.test/#consumer-built-founder",
       "builtBy": "jvto-web src/lib/schemas/entityGraph.ts buildFounderSchema (fixture)",
       "why": "Stands in for the founder Person node jvto-web builds and merges at render time."
+    }
+  ],
+  "patterns": [
+    {
+      "idPattern": "^https://x\\.test/tours/[^/#]+#webpage$",
+      "onlyUnderPredicates": ["mainEntityOfPage"],
+      "builtBy": "jvto-web tour PDP page.tsx (fixture, inline WebPage builder)",
+      "why": "Stands in for the per-route WebPage node jvto-web builds inline and merges at render time. Scoped to mainEntityOfPage only, on purpose."
     }
   ]
 }
