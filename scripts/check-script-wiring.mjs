@@ -24,17 +24,40 @@ import {
   webRoot,
   requireRepo,
   rootOverride,
+  runCli,
 } from "./lib/repos.mjs";
 
 // Scripts confirmed manual-only FOR NOW — deliberately not wired into any
 // workflow. This is not a permanent exemption: the intent is for this list
 // to shrink as each entry either gets wired in or is retired, not to grow
 // into a place unwired scripts go to be forgotten.
-export const DEFAULT_ALLOW_MANUAL = [
-  "audit:geo-visibility",
-  "audit:travel-guide:live",
-  "check:fact-drift",
-];
+//
+// Scoped per repo, not shared across both: a name exempted here for
+// jvto-web must not silently exempt a same-named script that jvto-ekosistem
+// might one day define for an unrelated reason. Each entry carries `why`
+// and `addedOn` — mirroring the bar scripts/consumer-defined-ids.json
+// already sets — so a reader can tell whether an entry has outlived its
+// reason instead of trusting a bare name forever.
+export const ALLOW_MANUAL = {
+  web: [
+    {
+      name: "audit:geo-visibility",
+      why: "Manual/weekly generative-visibility audit against the live site; not something a per-push CI gate should run.",
+      addedOn: "2026-08-20",
+    },
+    {
+      name: "audit:travel-guide:live",
+      why: "Fetches the live site to check travel-guide parity; a manual spot-check, not a CI-safe deterministic step.",
+      addedOn: "2026-08-20",
+    },
+    {
+      name: "check:fact-drift",
+      why: "Manual fact-drift sweep against live/external sources; not wired into CI because it depends on state outside the repo.",
+      addedOn: "2026-08-20",
+    },
+  ],
+  ekosistem: [],
+};
 
 const ORPHAN_PREFIXES = ["audit:", "validate:", "check:"];
 const NPM_RUN_RE = /\bnpm run ([A-Za-z0-9_:.-]+)/g;
@@ -48,24 +71,31 @@ function extractCalledScripts(workflowText) {
 }
 
 /**
- * checkWiring(pkgScripts, workflowText, { allowManual })
+ * checkWiring(pkgScripts, workflowText, { allowManual, repoLabel })
  *
  * pkgScripts: the parsed `scripts` object from a package.json.
  * workflowText: every workflow file's text concatenated together — callers
  * don't need per-file attribution here, just which script names appear.
- * allowManual: script names exempted from the orphan warning.
+ * allowManual: script names exempted from the orphan warning (plain
+ * strings — the per-repo `why`/`addedOn` metadata in ALLOW_MANUAL is a
+ * bookkeeping concern for main()'s config, not this pure-logic function).
+ * repoLabel: when given, prefixes every finding's `file` (e.g.
+ * "web/package.json") so two otherwise-identical findings from different
+ * repos in the same run are distinguishable. Omitted, `file` stays the bare
+ * "package.json" — existing single-repo callers (tests) are unaffected.
  */
-export function checkWiring(pkgScripts, workflowText, { allowManual = [] } = {}) {
+export function checkWiring(pkgScripts, workflowText, { allowManual = [], repoLabel } = {}) {
   const findings = [];
   const called = extractCalledScripts(workflowText);
   const allowSet = new Set(allowManual);
+  const file = repoLabel ? `${repoLabel}/package.json` : "package.json";
 
   for (const name of called) {
     if (!(name in pkgScripts)) {
       findings.push(
         finding(
           "error",
-          "package.json",
+          file,
           `workflow calls \`npm run ${name}\` but package.json has no such script`,
         ),
       );
@@ -79,7 +109,7 @@ export function checkWiring(pkgScripts, workflowText, { allowManual = [] } = {})
     findings.push(
       finding(
         "warn",
-        "package.json",
+        file,
         `\`${name}\` is defined but no workflow runs it — wire it or add it to allowManual`,
       ),
     );
@@ -107,19 +137,28 @@ function readWorkflowText(root) {
     .join("\n");
 }
 
+function allowManualNames(repoLabel) {
+  return (ALLOW_MANUAL[repoLabel] ?? []).map((entry) => entry.name);
+}
+
 function main() {
   const argv = process.argv.slice(2);
-  const override = rootOverride(argv);
 
-  const web = requireRepo("web", webRoot(override));
-  const ekosistem = requireRepo("ekosistem", ekosystemRoot(override));
+  // This is the one checker that reads both repos, so a single --repo-root
+  // can't disambiguate which root it's for — --web-root/--ekosistem-root
+  // replace it here. (The single-repo checkers keep using --repo-root
+  // unchanged.)
+  const web = requireRepo("web", webRoot(rootOverride(argv, "--web-root")));
+  const ekosistem = requireRepo("ekosistem", ekosystemRoot(rootOverride(argv, "--ekosistem-root")));
 
   const findings = [
     ...checkWiring(readPkgScripts(web), readWorkflowText(web), {
-      allowManual: DEFAULT_ALLOW_MANUAL,
+      allowManual: allowManualNames("web"),
+      repoLabel: "web",
     }),
     ...checkWiring(readPkgScripts(ekosistem), readWorkflowText(ekosistem), {
-      allowManual: DEFAULT_ALLOW_MANUAL,
+      allowManual: allowManualNames("ekosistem"),
+      repoLabel: "ekosistem",
     }),
   ];
 
@@ -127,5 +166,5 @@ function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
+  runCli("check-script-wiring", main);
 }
