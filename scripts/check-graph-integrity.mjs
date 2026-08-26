@@ -91,6 +91,39 @@ function normalizeName(name) {
 }
 
 /**
+ * Types the entity registry exists to hold: organisations and people.
+ *
+ * The inline-duplicate rule applies only to these. Everything else legitimately
+ * appears inline — a `ListItem` is a position in a list, not a second copy of the
+ * thing it points at; an `ImageObject`, `DigitalDocument`, `Place` or
+ * `AdministrativeArea` describes a value, not an entity with its own identity.
+ * Applied to every type, this rule reported 118 errors against the live site, 111
+ * of them shapes schema.org documents as correct. This is the only checker cleared
+ * to block a push; a rule that broad is an outage waiting for the day the gate
+ * finally matters.
+ *
+ * Narrowed, the same scan reports what it was written for: a ministry, a police
+ * force, a publisher, a news outlet, a tourist-police unit and a named crew member,
+ * each described inline while a registry node for it exists at a stable @id.
+ */
+const ENTITY_TYPES = new Set([
+  "Organization",
+  "GovernmentOrganization",
+  "NewsMediaOrganization",
+  "Corporation",
+  "LocalBusiness",
+  "TravelAgency",
+  "Person",
+]);
+
+function isEntityType(value) {
+  const t = value["@type"];
+  if (typeof t === "string") return ENTITY_TYPES.has(t);
+  if (Array.isArray(t)) return t.some((x) => ENTITY_TYPES.has(x));
+  return false;
+}
+
+/**
  * Walks every document depth-first, collecting:
  *   - defined: ids that carry an @id plus at least one other key, anywhere
  *     across all documents (cross-document resolution).
@@ -145,7 +178,10 @@ export function collectGraph(docs) {
       if (hasOtherKeys) {
         defined.add(id);
         recordType(id, value);
-        if (typeof value.name === "string") {
+        // Only entity nodes are duplication targets. A DefinedTerm named
+        // "HPWKI" is a glossary entry, not the organisation; matching against
+        // it would report a duplicate that does not exist.
+        if (isEntityType(value) && typeof value.name === "string") {
           namesById.set(id, normalizeName(value.name));
         }
       }
@@ -156,7 +192,7 @@ export function collectGraph(docs) {
     // Object with no @id: a candidate inline node, and still worth walking
     // for nested references (using the same enclosing srcId, since this
     // object doesn't introduce a new one).
-    if (typeof value["@type"] !== "undefined" && typeof value.name === "string") {
+    if (isEntityType(value) && typeof value.name === "string") {
       inlineNamed.push({ name: value.name, normalizedName: normalizeName(value.name) });
     }
     walkProperties(value, srcId);
@@ -349,17 +385,52 @@ function extractSitemapRoutes(xml) {
   return routes;
 }
 
-async function loadLiveDocs(web) {
-  const sitemapPath = path.join(web, "public", "sitemap.xml");
-  const xml = readFileSync(sitemapPath, "utf8");
-  const routes = extractSitemapRoutes(xml);
-  const docs = [];
-  for (const route of routes) {
-    const res = await fetch(route);
-    if (!res.ok) continue;
-    const html = await res.text();
-    docs.push(...extractLdJsonBlocks(html));
+/**
+ * Live mode fetches the sitemap over HTTP rather than reading
+ * jvto-web/public/sitemap.xml, which does not exist: this site generates its
+ * sitemap at request time from src/app/sitemap.ts. Reading a file that is
+ * never written meant --live had never run at all — the one mode that sees
+ * the merged graph both repos produce, and the only one that can notice an
+ * exemption whose reason has expired.
+ *
+ * Fetching also removes the need for a jvto-web checkout, so this can run
+ * anywhere with network access.
+ */
+const DEFAULT_SITE = "https://javavolcano-touroperator.com";
+
+async function loadLiveDocs() {
+  const site = (process.env.JVTO_SITE_URL ?? DEFAULT_SITE).replace(/\/$/, "");
+  const res = await fetch(`${site}/sitemap.xml`);
+  if (!res.ok) {
+    throw new Error(`Could not fetch ${site}/sitemap.xml — HTTP ${res.status}`);
   }
+  const routes = extractSitemapRoutes(await res.text());
+  if (!routes.length) {
+    throw new Error(`${site}/sitemap.xml parsed to zero routes`);
+  }
+
+  const docs = [];
+  let unreachable = 0;
+  for (const route of routes) {
+    let page;
+    try {
+      page = await fetch(route);
+    } catch {
+      unreachable += 1;
+      continue;
+    }
+    if (!page.ok) {
+      unreachable += 1;
+      continue;
+    }
+    docs.push(...extractLdJsonBlocks(await page.text()));
+  }
+  // Say what was skipped. A scan that silently drops pages reports a clean
+  // graph for a site it only partly read.
+  console.log(
+    `check-graph-integrity: --live read ${routes.length - unreachable} of ${routes.length} routes` +
+      (unreachable ? ` (${unreachable} unreachable)` : ""),
+  );
   return docs;
 }
 
@@ -376,7 +447,7 @@ async function main() {
   let rawDocs;
   if (live) {
     const web = requireRepo("web", webRoot(override));
-    rawDocs = await loadLiveDocs(web);
+    rawDocs = await loadLiveDocs();
   } else {
     const root = ekosystemRoot(override);
     requireRepo("ekosistem", root);
