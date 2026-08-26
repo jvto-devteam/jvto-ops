@@ -1,23 +1,31 @@
 // SSOT drift: catches page prose assembled inline in a jvto-web consumer
 // file instead of read from jvto-ekosistem, the single source of truth.
 //
-// A template literal or string concatenation assigned to a const named
-// answerFirst/lede/summary/description (case-insensitively, as a substring)
-// is exactly the shape the tours hub carried before its answer sentence and
-// a locally computed price floor were found built in the consumer. Short
-// literals are allowed through (a one-line placeholder isn't the failure
-// mode this exists for); the 60-character floor is a proxy for "this is
-// real assembled prose, not a stub." A read guarded by `page?.raw`, `pc.`,
-// or `ecosystemPage` is exempt outright, template literal and all — that's
-// the FALLBACK shape this checker wants to see, not the violation.
+// A const named answerFirst/lede/summary/description (case-insensitively,
+// as a substring) is flagged when its assigned expression splices a runtime
+// value into prose:
 //
-// A plain quoted string ("..." or '...', no interpolation, no `+`) is never
-// flagged, however long: it's either a FALLBACK constant consumed after an
-// ekosistem read (`page?.meta.description ?? defaultDescription`, the
-// why-jvto pattern) or a constant for a route with no ekosistem counterpart
-// at all (the entity registry hub). Neither is this checker's business, and
-// this checker fires from a PostToolUse hook on every .tsx edit — flagging
-// the correct FALLBACK shape gets it muted within a day.
+//   - a template literal containing `${...}` interpolation, or
+//   - a `+` joining a string/template literal to anything else — another
+//     literal (the brief's original "string concatenation" case), or a
+//     computed expression like `priceFloor.toLocaleString()` (the /tours
+//     hub shape: an answer sentence and a locally computed price floor
+//     built in the consumer, which is the reason this checker exists).
+//
+// The shape of the literal is not the signal — splicing is. A lone
+// template literal with NO `${}` is just a plain string that happens to use
+// backtick quoting, and a lone plain string is never flagged either,
+// however long: both are either a FALLBACK constant consumed after an
+// ekosistem read, or a constant for a route with no ekosistem counterpart
+// at all. Neither is this checker's business, and it fires from a
+// PostToolUse hook on every .tsx edit — flagging correct code is how a
+// checker gets muted.
+//
+// Short splices are allowed through too (a one-line placeholder isn't the
+// failure mode this exists for); the 60-character floor on the literal
+// portions is a proxy for "this is real assembled prose, not a stub." A
+// read guarded by `page?.raw`, `pc.`, or `ecosystemPage` is exempt outright
+// — that's the FALLBACK shape this checker wants to see, not the violation.
 //
 // Pure logic lives in checkAssembledContent() so tests exercise it against
 // fixtures with no I/O. The CLI wrapper below walks jvto-web's src/app and
@@ -29,20 +37,25 @@ import { finding, report, webRoot, requireRepo, rootOverride } from "./lib/repos
 const NAME_RE = /answerFirst|lede|summary|description/i;
 const GUARD_RE = /page\?\.raw|\bpc\.|ecosystemPage/;
 const LITERAL_SEGMENT_RE = /`([^`]*)`|"([^"]*)"|'([^']*)'/g;
-// Deliberately two separate shapes, not one shape with an optional `+` tail:
-// a lone template literal is drift-shaped on its own (interpolation makes it
-// "assembled"), but a lone plain string ("..." or '...') never is — however
-// long, it's either a FALLBACK constant or a page with no ekosistem
-// counterpart, and neither is this checker's business. Only concatenation
-// (at least one `+` joining literal parts, quoted or templated) makes a
-// plain string count as "assembled" the way the brief means it.
-const SINGLE_TEMPLATE_RE = /^`[^`]*`$/;
-const CONCAT_SHAPE_RE =
-  /^(`[^`]*`|"[^"]*"|'[^']*')(\s*\+\s*(`[^`]*`|"[^"]*"|'[^']*'))+$/;
+
+// A template literal counts as "assembled" only when it splices a runtime
+// value in via ${...} — a lone backtick literal used just for quoting
+// convenience, with no interpolation, is exactly the same as a lone plain
+// string and is not this checker's business.
+const INTERPOLATED_TEMPLATE_RE = /`[^`]*\$\{/;
+
+// A `+` joining a string/template literal to anything else — checked as
+// "contains", not "the whole expression is only this" — so a ternary whose
+// live branch is guarded (see GUARD_RE above) can still carry a fallback
+// template literal without tripping this on its own; the guard is what
+// exempts it, not the shape check failing to notice it.
+const LITERAL_CONCAT_RE =
+  /(`[^`]*`|"[^"]*"|'[^']*')\s*\+|\+\s*(`[^`]*`|"[^"]*"|'[^']*')/;
+
 const MIN_LENGTH = 60;
 
 function isAssembledShape(expr) {
-  return SINGLE_TEMPLATE_RE.test(expr) || CONCAT_SHAPE_RE.test(expr);
+  return INTERPOLATED_TEMPLATE_RE.test(expr) || LITERAL_CONCAT_RE.test(expr);
 }
 
 function literalContentLength(expr) {
@@ -68,7 +81,7 @@ export function checkAssembledContent(source, file) {
 
     const expr = m[2].trim();
     if (GUARD_RE.test(expr)) continue; // read from ekosistem — this is the FALLBACK shape
-    if (!isAssembledShape(expr)) continue; // not a template literal or concatenation
+    if (!isAssembledShape(expr)) continue; // no interpolation, no concatenation — not assembled
     if (literalContentLength(expr) <= MIN_LENGTH) continue;
 
     findings.push(
@@ -83,17 +96,42 @@ export function checkAssembledContent(source, file) {
   return findings;
 }
 
+// Manual recursive walk rather than readdirSync(dir, { recursive: true }):
+// the built-in recursive option follows symlinked directories, which can
+// point outside the repo entirely or cycle back on itself. A checker that
+// reads outside the tree it was pointed at, or hangs on a symlink loop, is
+// a defect regardless of how unlikely the setup is — so symlinked
+// directories are skipped, never descended into.
+function walkFiles(dir) {
+  const files = [];
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return files;
+  }
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkFiles(full));
+    } else if (entry.isFile()) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
 function collectTsxFiles(root) {
   const dirs = [path.join(root, "src", "app"), path.join(root, "src", "components")];
   const files = [];
   for (const dir of dirs) {
     if (!existsSync(dir)) continue;
-    for (const entry of readdirSync(dir, { recursive: true })) {
-      if (!entry.endsWith(".tsx")) continue;
-      const rel = entry.split(path.sep).join("/");
+    for (const full of walkFiles(dir)) {
+      if (!full.endsWith(".tsx")) continue;
+      const rel = full.split(path.sep).join("/");
       if (rel.includes("/FALLBACK")) continue;
-      if (rel.includes("src/lib/schemas")) continue;
-      files.push(path.join(dir, entry));
+      files.push(full);
     }
   }
   return files;

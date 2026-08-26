@@ -17,6 +17,17 @@ test("reading from ekosistem with a fallback is not reported", () => {
   assert.deepEqual(checkAssembledContent(read("clean"), "page.tsx"), []);
 });
 
-test("a plain string constant over 60 chars, consumed via ?? after an ekosistem read, is not reported", () => {
-  assert.deepEqual(checkAssembledContent(read("plain-string-fallback"), "page.tsx"), []);
+test("a plain string constant is never reported, regardless of length or how it's consumed", () => {
+  assert.deepEqual(checkAssembledContent(read("plain-string-any-length"), "page.tsx"), []);
+});
+
+test("a lone template literal with no ${} interpolation is not reported", () => {
+  assert.deepEqual(checkAssembledContent(read("plain-template-no-interpolation"), "note.tsx"), []);
+});
+
+test("concatenation splicing a computed value into prose is reported", () => {
+  const findings = checkAssembledContent(read("spliced-computed"), "page.tsx");
+  assert.equal(findings.length >= 1, true);
+  assert.ok(findings[0].message.includes("answerFirst"));
+  assert.equal(findings[0].level, "error");
 });
