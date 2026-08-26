@@ -9,7 +9,7 @@
   ],
   "patterns": [
     {
-      "idPattern": "^https://javavolcano-touroperator\\.com/tours/(?:from-bali|from-surabaya)/[^/#]+#webpage$",
+      "idPattern": "^https://javavolcano-touroperator\\.com/tours/(?:from-bali|from-surabaya)/[^/#?]+#webpage$",
       "onlyUnderPredicates": [
         "mainEntityOfPage"
       ],

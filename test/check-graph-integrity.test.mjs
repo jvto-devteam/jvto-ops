@@ -122,6 +122,34 @@ test("resolveScanInputs' pattern exemption is scoped to onlyUnderPredicates, and
   const live = resolveScanInputs({ live: true, docs: [scopedDoc], exemptions: CONSUMER_FIXTURE });
   const liveFindings = checkGraph(collectGraph(live.docs), { exemptPatterns: live.exemptPatterns });
   assert.ok(liveFindings.some((f) => f.message.includes(matchingId) && /never defined/.test(f.message)));
+
+  // A query string is not part of the slug class: [^/#?]+ stops at "?", so
+  // an id with one attached doesn't match idPattern and is never exempted,
+  // even under mainEntityOfPage, even offline. (Round-3 fix: the class was
+  // briefly [^/#], which let a "?"-bearing id through the pattern silently —
+  // a false negative in the one checker that has to have zero false positives.)
+  const queryStringId = "https://x.test/tours/ijen-bromo-3d2n?x=1#webpage";
+  const queryStringDoc = {
+    "@graph": [
+      {
+        "@id": "https://x.test/tours/ijen-bromo-3d2n#tour",
+        "@type": "TouristTrip",
+        "name": "Tour",
+        "mainEntityOfPage": { "@id": queryStringId },
+      },
+    ],
+  };
+  const offlineQueryString = resolveScanInputs({
+    live: false,
+    docs: [queryStringDoc],
+    exemptions: CONSUMER_FIXTURE,
+  });
+  const offlineQueryStringFindings = checkGraph(collectGraph(offlineQueryString.docs), {
+    exemptPatterns: offlineQueryString.exemptPatterns,
+  });
+  assert.ok(
+    offlineQueryStringFindings.some((f) => f.message.includes(queryStringId) && /never defined/.test(f.message)),
+  );
 });
 
 test("loadConsumerDefinedIds degrades to no exemptions when the file is missing", () => {

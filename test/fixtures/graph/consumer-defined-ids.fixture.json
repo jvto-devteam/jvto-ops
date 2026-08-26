@@ -9,7 +9,7 @@
   ],
   "patterns": [
     {
-      "idPattern": "^https://x\\.test/tours/[^/#]+#webpage$",
+      "idPattern": "^https://x\\.test/tours/[^/#?]+#webpage$",
       "onlyUnderPredicates": ["mainEntityOfPage"],
       "builtBy": "jvto-web tour PDP page.tsx (fixture, inline WebPage builder)",
       "why": "Stands in for the per-route WebPage node jvto-web builds inline and merges at render time. Scoped to mainEntityOfPage only, on purpose."
