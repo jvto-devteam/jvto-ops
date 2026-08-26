@@ -229,13 +229,17 @@ function main() {
   const checker = selectChecker(mode, payload);
 
   if (!checker) {
+    // Nothing has been written to this process's stdout yet — an
+    // immediate exit here loses no output, so process.exit(0) is fine.
     process.exit(0);
   }
 
   const { findings, skipped } = runCheckerJson(checker, mode, payload);
 
   // A missing sibling repo is not a finding — nothing to block or warn
-  // about, on either path below.
+  // about, on either path below. Also fine to exit immediately: the
+  // child's stdout was already fully captured (spawnSync is synchronous),
+  // and this process itself hasn't written anything yet.
   if (skipped) {
     process.exit(0);
   }
@@ -259,7 +263,14 @@ function main() {
         );
       }
     }
-    process.exit(0);
+    // return, not process.exit(0): the deny JSON just printed above can be
+    // large (many findings), and process.exit() can tear this process down
+    // before Node finishes flushing that async stdout write — the exact
+    // truncation bug this fix wave exists to close, just one process up
+    // from the checker. Returning lets main() finish and the event loop
+    // drain stdout before Node exits (default exit code 0, which is what
+    // every path in this function has always used).
+    return;
   }
 
   if (mode === "post-edit") {
@@ -279,7 +290,10 @@ function main() {
         }),
       );
     }
-    process.exit(0);
+    // return, not process.exit(0): same reasoning as the pre-push branch
+    // above — additionalContext can be large, and process.exit() risks
+    // truncating it before it's flushed.
+    return;
   }
 
   process.exit(0);

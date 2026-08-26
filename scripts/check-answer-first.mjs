@@ -294,7 +294,12 @@ function main() {
     findings.push(...checkAnswerFirst(text, relPath));
   }
 
-  process.exit(report("check-answer-first", findings, argv));
+  // process.exitCode, not process.exit(): see check-graph-integrity.mjs for
+  // why — process.exit() can truncate a large --json write before
+  // hook-dispatch.mjs finishes reading it over spawnSync. (The unknown-flag
+  // process.exit(1) above is left alone: it only ever writes to stderr, and
+  // it fires before any repo scan or stdout write has happened.)
+  process.exitCode = report("check-answer-first", findings, argv);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

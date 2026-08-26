@@ -138,10 +138,18 @@ export function runCli(checkerName, fn) {
     .then(fn)
     .catch((err) => {
       if (err instanceof RepoNotFoundError) {
+        // process.exitCode, not process.exit(): reportSkippedRepo() writes
+        // to stdout (the --json skip line hook-dispatch.mjs parses), and
+        // process.exit() can tear the process down before that async write
+        // finishes flushing — the same truncation risk as report()'s output,
+        // just on a shorter payload. exitCode lets it drain naturally.
         reportSkippedRepo(checkerName, err);
-        process.exit(0);
+        process.exitCode = 0;
         return;
       }
+      // console.error() writes to stderr, not the stdout hook-dispatch.mjs
+      // parses, and nothing has been written to stdout on this path — an
+      // immediate exit here loses no output.
       console.error(err?.stack ?? String(err));
       process.exit(1);
     });

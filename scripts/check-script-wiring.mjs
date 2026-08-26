@@ -162,7 +162,10 @@ function main() {
     }),
   ];
 
-  process.exit(report("check-script-wiring", findings, argv));
+  // process.exitCode, not process.exit(): see check-graph-integrity.mjs for
+  // why — process.exit() can truncate a large --json write before
+  // hook-dispatch.mjs finishes reading it over spawnSync.
+  process.exitCode = report("check-script-wiring", findings, argv);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

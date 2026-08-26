@@ -254,7 +254,10 @@ function main() {
     findings.push(...checkAssembledContent(source, rel));
   }
 
-  process.exit(report("check-ssot-drift", findings, argv));
+  // process.exitCode, not process.exit(): see check-graph-integrity.mjs for
+  // why — process.exit() can truncate a large --json write before
+  // hook-dispatch.mjs finishes reading it over spawnSync.
+  process.exitCode = report("check-ssot-drift", findings, argv);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

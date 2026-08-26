@@ -392,7 +392,14 @@ async function main() {
   const graph = collectGraph(docs);
   const findings = checkGraph(graph, { exemptPatterns });
 
-  process.exit(report("check-graph-integrity", findings, argv));
+  // process.exitCode, not process.exit(): --json output can exceed the OS
+  // pipe buffer, and process.exit() tears the process down before Node
+  // finishes flushing the async stdout write, truncating it mid-document.
+  // hook-dispatch.mjs JSON.parses this over spawnSync, so a truncated
+  // payload fails to parse and the findings (including a pre-push deny)
+  // silently vanish instead of surfacing. Setting exitCode and letting
+  // main() return lets the event loop drain stdout before the process exits.
+  process.exitCode = report("check-graph-integrity", findings, argv);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

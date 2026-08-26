@@ -310,3 +310,76 @@ test("post-edit against a missing ekosistem repo produces no output and does not
   assert.equal(result.status, 0);
   assert.equal(result.stdout.trim(), "");
 });
+
+// Regression test for the defect the fix wave itself introduced: every
+// checker used to end with process.exit(report(...)). console.log() to a
+// piped stdout is an async write, and process.exit() tears the process
+// down before Node finishes flushing it — so a --json payload big enough
+// to outrun the OS pipe buffer got silently truncated. hook-dispatch.mjs
+// JSON.parses that (now-truncated) stdout over spawnSync, the parse threw,
+// and the catch swallowed it into `{ findings: [], skipped: false }` — a
+// checker with 400 genuine graph-integrity errors produced no deny at all.
+// Every other fixture in this file is a single finding, comfortably under
+// any pipe buffer — which is exactly why nothing caught this. This one
+// builds a fixture large enough that the checker's own --json output
+// exceeds 64KB, so the regression can't silently return here either.
+test("pre-push against a repo with hundreds of dangling references still denies, with findings intact, once --json output exceeds 64KB", () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), "jvto-ops-test-dispatch-huge-"));
+  try {
+    const pagesDir = path.join(repoDir, "5-experience-engine", "json-ld", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+
+    const DANGLING_COUNT = 400;
+    const nodes = [];
+    for (let i = 0; i < DANGLING_COUNT; i++) {
+      nodes.push({
+        "@id": `https://javavolcano-touroperator.com/#org-${i}`,
+        "@type": "Organization",
+        name: `X${i}`,
+        publisher: { "@id": `https://javavolcano-touroperator.com/#missing-${i}` },
+      });
+    }
+    writeFileSync(
+      path.join(pagesDir, "x.schema-output.json"),
+      JSON.stringify({ json_ld: { "@graph": nodes } }),
+    );
+
+    // Confirm the premise directly against the checker first: its own
+    // --json output must actually cross the 64KB pipe-buffer threshold,
+    // or this test would pass for the wrong reason (a fixture too small
+    // to ever have tripped the truncation bug in the first place).
+    const CHECKER_PATH = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "scripts",
+      "check-graph-integrity.mjs",
+    );
+    const direct = spawnSync(process.execPath, [CHECKER_PATH, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, JVTO_EKOSYSTEM_ROOT: repoDir },
+    });
+    assert.ok(
+      Buffer.byteLength(direct.stdout, "utf8") > 65536,
+      `fixture's --json output must exceed the 64KB pipe buffer (was ${Buffer.byteLength(direct.stdout, "utf8")} bytes)`,
+    );
+
+    const result = runDispatch(
+      "pre-push",
+      { tool_input: { command: "git push origin main" } },
+      { JVTO_EKOSYSTEM_ROOT: repoDir },
+    );
+
+    assert.equal(result.status, 0);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.hookSpecificOutput.hookEventName, "PreToolUse");
+    assert.equal(parsed.hookSpecificOutput.permissionDecision, "deny");
+    const reason = parsed.hookSpecificOutput.permissionDecisionReason;
+    assert.match(reason, /never defined/);
+    // All 400 findings survived, not just however many fit before the old
+    // truncation point.
+    const mentions = reason.match(/never defined/g) ?? [];
+    assert.equal(mentions.length, DANGLING_COUNT);
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+});
