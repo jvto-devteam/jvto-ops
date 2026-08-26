@@ -102,6 +102,39 @@ const CARDINAL_RE = new RegExp(
   "gi",
 );
 
+
+/**
+ * People named in the roster, read from ekosistem rather than guessed.
+ *
+ * The spec counts "nama orang beratribusi" as a fact, and the implementation
+ * had no way to see one: a block naming Agung Sambuko and the Tourist Police
+ * scored zero. Detecting capitalised word pairs would have matched half the
+ * prose, so the names come from people-and-crew/people.json — the same list
+ * the site publishes profiles from. A name nobody on the roster carries is
+ * not a fact this checker will credit.
+ */
+function rosterNames(root) {
+  try {
+    const people = JSON.parse(
+      readFileSync(path.join(root, PEOPLE_PATH), "utf8"),
+    );
+    const names = new Set();
+    for (const person of people.leadership ?? []) {
+      if (typeof person.name === "string") names.add(person.name);
+    }
+    for (const member of people.crew?.roster ?? []) {
+      if (typeof member.name === "string") {
+        names.add(member.name.replace(/\s*\([^)]*\)\s*/g, " ").trim());
+      }
+    }
+    return [...names].filter((n) => n.length > 2);
+  } catch {
+    return [];
+  }
+}
+
+const PEOPLE_PATH = "1-knowledge-and-evidence-core/people-and-crew/people.json";
+
 const FACT_PATTERNS = [
   // A number with a unit: m, km, kg, mdpl, minutes/hours/days/nights, pax, %, IDR, Rp.
   // Trailing lookahead (not \b) because "%" isn't a word character, so a
@@ -121,6 +154,15 @@ const FACT_PATTERNS = [
   /\b(?:SE|AHU|SPRIN|NIB|TDUP|NPWP|STR|SIP|KTA)[.\-\s][A-Z0-9./-]{3,}/g,
   // A run of 9+ digits.
   /\d{9,}/g,
+  // A recurring period. The spec's fact list names "tanggal/periode", and a
+  // rule like "the first Friday of every month" is exactly that — a date you
+  // can plan around, stated as a recurrence rather than a calendar entry.
+  // Missing it undercounted the Rijik closure block, whose whole subject is
+  // one recurring date.
+  /\b(?:first|second|third|fourth|last)\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/gi,
+  /\bevery\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|month|week|year|day)\b/gi,
+  // A season or month range: April-October, May to October.
+  /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s*(?:-|–|to)\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\b/gi,
   // A named authority.
   new RegExp(`\\b(?:${AUTHORITIES.map(escapeRegex).join("|")})\\b`, "g"),
   // A volatile-number token (e.g. {GOOGLE_RATING}, {PACKAGE_COUNT}) counts as
@@ -153,10 +195,16 @@ function countWords(text) {
 // caught twice — is dropped, keeping only the longest (most specific) match
 // for that position. A literal repeat of the exact same fact text elsewhere
 // in the block still collapses via the Set, same as before.
-function countDistinctFacts(text) {
+function countDistinctFacts(text, names = []) {
   const spans = [];
   for (const pattern of FACT_PATTERNS) {
     for (const m of text.matchAll(pattern)) {
+      spans.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+    }
+  }
+  for (const name of names) {
+    const re = new RegExp(`\\b${escapeRegex(name)}\\b`, "gi");
+    for (const m of text.matchAll(re)) {
       spans.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
     }
   }
@@ -181,7 +229,7 @@ function countDistinctFacts(text) {
  * takes the block text and the file path to attribute findings to, does no
  * I/O, and returns a Finding[] (possibly empty).
  */
-export function checkAnswerFirst(text, filePath) {
+export function checkAnswerFirst(text, filePath, names = []) {
   const findings = [];
 
   const wordCount = countWords(text);
@@ -191,7 +239,7 @@ export function checkAnswerFirst(text, filePath) {
     );
   }
 
-  const facts = countDistinctFacts(text);
+  const facts = countDistinctFacts(text, names);
   if (facts.size < 3) {
     // Warning, not error — see the file header. This heuristic fires on 22
     // of 56 live blocks (40% of the corpus); a per-edit hook that blocks on
@@ -286,12 +334,13 @@ function main() {
   requireRepo("ekosistem", root);
 
   const files = collectTargetFiles(root, positionals);
+  const names = rosterNames(root);
   const findings = [];
   for (const file of files) {
     const text = extractAnswerFirst(file);
     if (text === null) continue;
     const relPath = path.isAbsolute(file) ? path.relative(root, file) : file;
-    findings.push(...checkAnswerFirst(text, relPath));
+    findings.push(...checkAnswerFirst(text, relPath, names));
   }
 
   // process.exitCode, not process.exit(): see check-graph-integrity.mjs for
