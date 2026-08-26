@@ -11,6 +11,14 @@
 // or `ecosystemPage` is exempt outright, template literal and all — that's
 // the FALLBACK shape this checker wants to see, not the violation.
 //
+// A plain quoted string ("..." or '...', no interpolation, no `+`) is never
+// flagged, however long: it's either a FALLBACK constant consumed after an
+// ekosistem read (`page?.meta.description ?? defaultDescription`, the
+// why-jvto pattern) or a constant for a route with no ekosistem counterpart
+// at all (the entity registry hub). Neither is this checker's business, and
+// this checker fires from a PostToolUse hook on every .tsx edit — flagging
+// the correct FALLBACK shape gets it muted within a day.
+//
 // Pure logic lives in checkAssembledContent() so tests exercise it against
 // fixtures with no I/O. The CLI wrapper below walks jvto-web's src/app and
 // src/components for .tsx files.
@@ -21,9 +29,21 @@ import { finding, report, webRoot, requireRepo, rootOverride } from "./lib/repos
 const NAME_RE = /answerFirst|lede|summary|description/i;
 const GUARD_RE = /page\?\.raw|\bpc\.|ecosystemPage/;
 const LITERAL_SEGMENT_RE = /`([^`]*)`|"([^"]*)"|'([^']*)'/g;
+// Deliberately two separate shapes, not one shape with an optional `+` tail:
+// a lone template literal is drift-shaped on its own (interpolation makes it
+// "assembled"), but a lone plain string ("..." or '...') never is — however
+// long, it's either a FALLBACK constant or a page with no ekosistem
+// counterpart, and neither is this checker's business. Only concatenation
+// (at least one `+` joining literal parts, quoted or templated) makes a
+// plain string count as "assembled" the way the brief means it.
+const SINGLE_TEMPLATE_RE = /^`[^`]*`$/;
 const CONCAT_SHAPE_RE =
-  /^(`[^`]*`|"[^"]*"|'[^']*')(\s*\+\s*(`[^`]*`|"[^"]*"|'[^']*'))*$/;
+  /^(`[^`]*`|"[^"]*"|'[^']*')(\s*\+\s*(`[^`]*`|"[^"]*"|'[^']*'))+$/;
 const MIN_LENGTH = 60;
+
+function isAssembledShape(expr) {
+  return SINGLE_TEMPLATE_RE.test(expr) || CONCAT_SHAPE_RE.test(expr);
+}
 
 function literalContentLength(expr) {
   let total = 0;
@@ -48,7 +68,7 @@ export function checkAssembledContent(source, file) {
 
     const expr = m[2].trim();
     if (GUARD_RE.test(expr)) continue; // read from ekosistem — this is the FALLBACK shape
-    if (!CONCAT_SHAPE_RE.test(expr)) continue; // not a plain literal/concat assignment
+    if (!isAssembledShape(expr)) continue; // not a template literal or concatenation
     if (literalContentLength(expr) <= MIN_LENGTH) continue;
 
     findings.push(

@@ -16,3 +16,7 @@ test("prose assembled from a template literal is reported", () => {
 test("reading from ekosistem with a fallback is not reported", () => {
   assert.deepEqual(checkAssembledContent(read("clean"), "page.tsx"), []);
 });
+
+test("a plain string constant over 60 chars, consumed via ?? after an ekosistem read, is not reported", () => {
+  assert.deepEqual(checkAssembledContent(read("plain-string-fallback"), "page.tsx"), []);
+});
