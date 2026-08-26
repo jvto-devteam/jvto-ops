@@ -6,26 +6,38 @@
 // value into prose:
 //
 //   - a template literal containing `${...}` interpolation, or
-//   - a `+` joining a string/template literal to anything else — another
-//     literal (the brief's original "string concatenation" case), or a
-//     computed expression like `priceFloor.toLocaleString()` (the /tours
-//     hub shape: an answer sentence and a locally computed price floor
-//     built in the consumer, which is the reason this checker exists).
+//   - a `+` joining a string/template literal to something that is NOT
+//     itself a plain string/template literal — a computed expression like
+//     `priceFloor.toLocaleString()` (the /tours hub shape: an answer
+//     sentence and a locally computed price floor built in the consumer,
+//     which is the reason this checker exists).
 //
-// The shape of the literal is not the signal — splicing is. A lone
-// template literal with NO `${}` is just a plain string that happens to use
-// backtick quoting, and a lone plain string is never flagged either,
-// however long: both are either a FALLBACK constant consumed after an
-// ekosistem read, or a constant for a route with no ekosistem counterpart
-// at all. Neither is this checker's business, and it fires from a
-// PostToolUse hook on every .tsx edit — flagging correct code is how a
-// checker gets muted.
+// A concatenation where every `+`-joined part is itself a plain literal
+// (`` `A ` + `B` ``) is NOT splicing — nothing runtime is involved, it's one
+// prose constant wrapped across lines for readability, no different from a
+// lone literal, and is never flagged for that reason alone (though if any
+// of those literal parts itself contains `${}`, the interpolation rule
+// above still fires on it).
+//
+// A `X ?? <literal>` expression is never flagged, whatever `X` is and
+// whatever shape the literal takes (interpolated, spliced, or plain). `??`
+// means "fall back to the right side when the left has nothing" by
+// construction — that IS the FALLBACK pattern this checker exists to
+// allow, and the read jvto-web actually uses varies too much by call site
+// (`page?.meta.description`, `ecosystemAnswer`, `review.review?.slice(...)`)
+// to name-match reliably. An earlier version tried a literal-substring
+// guard (`page?.raw`, `pc.`, `ecosystemPage`) and it produced four false
+// positives on exactly this pattern on its first real-repo run. The
+// shape-based replacement does not attempt to verify the left side reads
+// from ekosistem at all, and accepts the resulting gap on principle:
+// `someLocalValue ?? <assembled prose>` can escape this checker. That is a
+// smaller cost than a checker that fires on correct code from a
+// PostToolUse hook that runs on every .tsx edit — false positives are how
+// a checker gets muted.
 //
 // Short splices are allowed through too (a one-line placeholder isn't the
 // failure mode this exists for); the 60-character floor on the literal
-// portions is a proxy for "this is real assembled prose, not a stub." A
-// read guarded by `page?.raw`, `pc.`, or `ecosystemPage` is exempt outright
-// — that's the FALLBACK shape this checker wants to see, not the violation.
+// portions is a proxy for "this is real assembled prose, not a stub."
 //
 // Pure logic lives in checkAssembledContent() so tests exercise it against
 // fixtures with no I/O. The CLI wrapper below walks jvto-web's src/app and
@@ -35,8 +47,8 @@ import path from "node:path";
 import { finding, report, webRoot, requireRepo, rootOverride } from "./lib/repos.mjs";
 
 const NAME_RE = /answerFirst|lede|summary|description/i;
-const GUARD_RE = /page\?\.raw|\bpc\.|ecosystemPage/;
 const LITERAL_SEGMENT_RE = /`([^`]*)`|"([^"]*)"|'([^']*)'/g;
+const PLAIN_LITERAL_OPERAND_RE = /^(`[^`]*`|"[^"]*"|'[^']*')$/;
 
 // A template literal counts as "assembled" only when it splices a runtime
 // value in via ${...} — a lone backtick literal used just for quoting
@@ -44,18 +56,84 @@ const LITERAL_SEGMENT_RE = /`([^`]*)`|"([^"]*)"|'([^']*)'/g;
 // string and is not this checker's business.
 const INTERPOLATED_TEMPLATE_RE = /`[^`]*\$\{/;
 
-// A `+` joining a string/template literal to anything else — checked as
-// "contains", not "the whole expression is only this" — so a ternary whose
-// live branch is guarded (see GUARD_RE above) can still carry a fallback
-// template literal without tripping this on its own; the guard is what
-// exempts it, not the shape check failing to notice it.
-const LITERAL_CONCAT_RE =
-  /(`[^`]*`|"[^"]*"|'[^']*')\s*\+|\+\s*(`[^`]*`|"[^"]*"|'[^']*')/;
-
 const MIN_LENGTH = 60;
 
+/**
+ * Walks `expr` once, tracking quote/template-literal state and
+ * paren/bracket/brace nesting depth, and calls `onMatch(index)` for every
+ * index where `token` starts at top level: not inside a string, and not
+ * nested inside a call, array, or object. Shared by the `??`-fallback
+ * finder and the `+`-concatenation splitter below, since both need "top
+ * level" to mean the same thing.
+ */
+function scanTopLevel(expr, token, onMatch) {
+  let depth = 0;
+  let quote = null;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) {
+      if (ch === "\\") {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") {
+      depth++;
+      continue;
+    }
+    if (ch === ")" || ch === "]" || ch === "}") {
+      depth--;
+      continue;
+    }
+    if (depth === 0 && expr.startsWith(token, i)) onMatch(i);
+  }
+}
+
+/**
+ * True when `expr` contains a top-level `??` — a `X ?? <literal>` shape,
+ * whatever `X` is. Deliberately does not inspect what's on either side:
+ * see the header comment for why that's the point, not an oversight.
+ */
+function hasTopLevelNullish(expr) {
+  let found = false;
+  scanTopLevel(expr, "??", () => {
+    found = true;
+  });
+  return found;
+}
+
+function splitTopLevelPlus(expr) {
+  const splitPoints = [];
+  scanTopLevel(expr, "+", (i) => splitPoints.push(i));
+  if (splitPoints.length === 0) return [expr.trim()];
+  const operands = [];
+  let start = 0;
+  for (const i of splitPoints) {
+    operands.push(expr.slice(start, i).trim());
+    start = i + 1;
+  }
+  operands.push(expr.slice(start).trim());
+  return operands;
+}
+
+// A `+`-joined chain counts as splicing only when at least one operand is
+// NOT itself a plain string/template literal — a concatenation of literals
+// only is prose wrapped across lines for readability, not a runtime value
+// spliced in.
+function hasSplicedConcatenation(expr) {
+  const operands = splitTopLevelPlus(expr);
+  if (operands.length < 2) return false;
+  return operands.some((op) => !PLAIN_LITERAL_OPERAND_RE.test(op));
+}
+
 function isAssembledShape(expr) {
-  return INTERPOLATED_TEMPLATE_RE.test(expr) || LITERAL_CONCAT_RE.test(expr);
+  return INTERPOLATED_TEMPLATE_RE.test(expr) || hasSplicedConcatenation(expr);
 }
 
 function literalContentLength(expr) {
@@ -80,8 +158,8 @@ export function checkAssembledContent(source, file) {
     if (!NAME_RE.test(name)) continue;
 
     const expr = m[2].trim();
-    if (GUARD_RE.test(expr)) continue; // read from ekosistem — this is the FALLBACK shape
-    if (!isAssembledShape(expr)) continue; // no interpolation, no concatenation — not assembled
+    if (hasTopLevelNullish(expr)) continue; // X ?? <literal> — fallback by construction
+    if (!isAssembledShape(expr)) continue; // no interpolation, no splicing — not assembled
     if (literalContentLength(expr) <= MIN_LENGTH) continue;
 
     findings.push(
