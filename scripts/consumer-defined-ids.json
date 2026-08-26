@@ -1,0 +1,95 @@
+{
+  "_comment": "@id values the consumer (jvto-web) builds at render time and merges into the same @graph. The offline scan (this checker's default mode) reads only the ekosistem half of that graph, so these resolve live but look dangling here. Mirrors jvto-ekosistem/scripts/validate-schema.mjs lines 20-52 (founder) and lines 12-15, 178-190 (PDP #webpage) — same ids, same reasoning, same repo boundary. Every entry needs a reason and the builder that produces it. Not applied in --live mode: there the full merged graph is visible, and a genuinely dangling id (including a mistyped one of these) must still fail.",
+  "ids": [
+    {
+      "id": "https://javavolcano-touroperator.com/#agung-sambuko",
+      "builtBy": "jvto-web src/lib/schemas/entityGraph.ts buildFounderSchema",
+      "why": "Founder Person node, merged into the combined @graph at render time. ekosistem never emits it — mirrors jvto-ekosistem/scripts/validate-schema.mjs loadPeopleIds(), lines 47-52, which carries the identical id with the identical reason."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-bali/bromo-ijen-3d2n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-bali/ijen-bromo-madakaripura-3d2n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-bali/ijen-papuma-tumpak-sewu-bromo-4d3n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-bali/ijen-papuma-tumpak-sewu-bromo-5d4n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/bromo-1d1n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/bromo-2d1n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/bromo-madakaripura-ijen-3d2n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/ijen-2d1n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/ijen-bromo-madakaripura-3d2n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/ijen-bromo-madakaripura-4d3n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/ijen-bromo-madakaripura-malang-5d4n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/ijen-papuma-tumpak-sewu-bromo-4d3n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/ijen-papuma-tumpak-sewu-bromo-5d4n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/ijen-papuma-tumpak-sewu-bromo-malang-6d5n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/taman-safari-prigen-bromo-madakaripura-3d2n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/tumpak-sewu-bromo-3d2n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    },
+    {
+      "id": "https://javavolcano-touroperator.com/tours/from-surabaya/tumpak-sewu-bromo-ijen-4d3n#webpage",
+      "builtBy": "jvto-web src/app/(website)/tours/from-bali/[slug]/page.tsx and the from-surabaya equivalent (inline WebPage builder)",
+      "why": "WebPage node for this tour PDP route. ekosistem deliberately does not emit a WebPage node for these routes (see jvto-ekosistem scripts/lib/build-tourist-trip.mjs, lines 90-102: WebPage/BreadcrumbList/Product/mainEntityOfPage stay locally built in jvto-web). jvto-web builds it inline and merges it into the same combined @graph at render time, so the TouristTrip's mainEntityOfPage edge resolves there. Mirrors jvto-ekosistem/scripts/validate-schema.mjs PDP_ROUTE_RE and its checkDanglingReferences exemption (lines 12-15, 178-190), which exempts only the current route's own #webpage id."
+    }
+  ]
+}

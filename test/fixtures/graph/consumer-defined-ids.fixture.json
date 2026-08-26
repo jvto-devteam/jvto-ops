@@ -1,0 +1,10 @@
+{
+  "_comment": "Fixture for the pinning test — not the real scripts/consumer-defined-ids.json.",
+  "ids": [
+    {
+      "id": "https://x.test/#consumer-built-founder",
+      "builtBy": "jvto-web src/lib/schemas/entityGraph.ts buildFounderSchema (fixture)",
+      "why": "Stands in for the founder Person node jvto-web builds and merges at render time."
+    }
+  ]
+}

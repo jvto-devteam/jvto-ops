@@ -14,27 +14,29 @@
 //      Organization/GovernmentOrganization nodes shared across many pages)
 //      is designed that way; treating it as dangling would block every push.
 //
+// A third thing looks like a dangling reference but isn't one: the graph
+// this checker sees offline is only HALF a graph. jvto-web builds some nodes
+// (the founder's Person node, each tour PDP's own WebPage node) and merges
+// them into the same combined @graph at render time — jvto-ekosistem never
+// emits them itself by design (see jvto-ekosistem/scripts/validate-schema.mjs,
+// which carries the identical exemption for the identical reason). Reading
+// the ekosistem half in isolation makes those edges look dangling. That's
+// not a URL-value predicate and not cross-document resolution — it's a
+// cross-REPO seam — so it gets its own mechanism: scripts/consumer-defined-ids.json
+// lists exactly which ids jvto-web builds and merges, reviewably, and the
+// CLI wrapper seeds them into the graph as synthetic definitions — but only
+// for the offline scan. In --live mode the full merged graph is visible, so
+// a genuinely dangling id (including a mistyped one of these) still fails.
+//
 // Pure logic lives in collectGraph()/checkGraph() so tests can call them
 // directly with parsed JSON-LD, no I/O. The CLI wrapper below reads the
 // offline *.schema-output.json corpus by default, or (with --live) fetches
 // the site's sitemap and extracts <script type="application/ld+json"> blocks.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { finding, report, ekosystemRoot, webRoot, requireRepo, rootOverride } from "./lib/repos.mjs";
 
-// Started as { url, sameAs, image, logo, contentUrl, thumbnailUrl,
-// identifier } per the original design. Running against the real
-// jvto-ekosistem corpus (2026-08-26) surfaced a false-positive class this
-// list didn't cover yet: mainEntityOfPage on every individual tour page
-// points at that page's own "<route>#webpage" fragment, and isPartOf/about/
-// spatialCoverage carry the same "this is the page itself, not a distinct
-// registry entity" meaning wherever they appear. None of the four are ever
-// meant to resolve to a separately-registered node — a WebPage fragment is
-// implicit page identity, not an entity this checker's registry tracks — so
-// they widen the URL-value exemption rather than get special-cased dangling
-// logic. (See task-3-report.md for the one genuine dangling reference this
-// run also found, which this widening does NOT swallow: founder ->
-// #agung-sambuko, never defined anywhere in the corpus.)
 export const VALUE_PREDICATES = new Set([
   "url",
   "sameAs",
@@ -43,10 +45,6 @@ export const VALUE_PREDICATES = new Set([
   "contentUrl",
   "thumbnailUrl",
   "identifier",
-  "mainEntityOfPage",
-  "about",
-  "isPartOf",
-  "spatialCoverage",
 ]);
 
 // Ids under these prefixes are the ones this repo's entity graph controls.
@@ -186,6 +184,37 @@ export function checkGraph(graph) {
   return findings;
 }
 
+/**
+ * Reads scripts/consumer-defined-ids.json: a reviewable list of @id values
+ * that jvto-web builds at render time and merges into the same combined
+ * @graph, which the offline scan — reading only the ekosistem half — would
+ * otherwise report as dangling. Returns { ids: [...] }, or { ids: [] } if
+ * the file is missing or malformed, so a missing file degrades to "no
+ * consumer exemptions" rather than crashing the checker.
+ */
+export function loadConsumerDefinedIds(filePath) {
+  try {
+    const data = JSON.parse(readFileSync(filePath, "utf8"));
+    return { ids: Array.isArray(data.ids) ? data.ids : [] };
+  } catch {
+    return { ids: [] };
+  }
+}
+
+/**
+ * Turns a consumer-defined-ids config into synthetic documents that make
+ * each listed id "defined" via the exact same has-@id-plus-another-key rule
+ * collectGraph already uses for everything else — no special-casing inside
+ * collectGraph/checkGraph, and so no risk to the two exemptions that make
+ * this checker safe to block on. Pure — takes the parsed config, does no
+ * I/O — so tests can exercise it with a fixture instead of the real file.
+ */
+export function consumerExemptionDocs(config) {
+  const ids = (config.ids ?? []).map((entry) => entry.id).filter((id) => typeof id === "string");
+  if (ids.length === 0) return [];
+  return [{ "@graph": ids.map((id) => ({ "@id": id, "@type": "Thing" })) }];
+}
+
 function findSchemaOutputFiles(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { recursive: true })
@@ -248,6 +277,11 @@ async function loadLiveDocs(web) {
   return docs;
 }
 
+const CONSUMER_DEFINED_IDS_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "consumer-defined-ids.json",
+);
+
 async function main() {
   const argv = process.argv.slice(2);
   const override = rootOverride(argv);
@@ -257,10 +291,16 @@ async function main() {
   if (live) {
     const web = requireRepo("web", webRoot(override));
     docs = await loadLiveDocs(web);
+    // No consumer-defined-ids seeding here: the live fetch already returns
+    // the fully merged graph (ekosistem + jvto-web), so a genuinely
+    // dangling id — including a mistyped one of the ids in that file —
+    // must still fail.
   } else {
     const root = ekosystemRoot(override);
     requireRepo("ekosistem", root);
     docs = loadOfflineDocs(root);
+    const consumerConfig = loadConsumerDefinedIds(CONSUMER_DEFINED_IDS_PATH);
+    docs.push(...consumerExemptionDocs(consumerConfig));
   }
 
   const graph = collectGraph(docs);
