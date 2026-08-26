@@ -6,16 +6,17 @@ import { checkAssembledContent } from "../scripts/check-ssot-drift.mjs";
 const read = (name) =>
   readFileSync(new URL(`./fixtures/drift/${name}.tsx`, import.meta.url), "utf8");
 
-// Acceptance table (task-4 fix round 3):
+// Acceptance table (task-4 fix rounds 3 and 4):
 //
-// | shape                                       | expected |
-// |----------------------------------------------|----------|
-// | lone backtick literal, no ${}                 | no finding |
-// | plain quoted string, any length               | no finding |
-// | concatenation of literals only                | no finding |
-// | X ?? <literal> in any form                    | no finding |
-// | template literal containing ${}               | finding    |
-// | concatenation splicing a non-literal          | finding    |
+// | shape                                          | expected   |
+// |-------------------------------------------------|------------|
+// | lone backtick literal, no ${}                    | no finding |
+// | plain quoted string, any length                  | no finding |
+// | concatenation of literals only                   | no finding |
+// | X ?? <literal>, literal in the final ?? position | no finding |
+// | <assembled prose> ?? fallback (prose is primary) | finding    |
+// | template literal containing ${}                  | finding    |
+// | concatenation splicing a non-literal             | finding    |
 
 test("lone backtick literal with no ${} interpolation is not reported", () => {
   assert.deepEqual(checkAssembledContent(read("plain-template-no-interpolation"), "note.tsx"), []);
@@ -35,6 +36,17 @@ test("X ?? <literal> is not reported, whatever form X takes", () => {
 
 test("reading from ekosistem with a ?? fallback is not reported", () => {
   assert.deepEqual(checkAssembledContent(read("clean"), "page.tsx"), []);
+});
+
+test("assembled prose on the left of ?? (the primary value, not a fallback) is reported", () => {
+  const findings = checkAssembledContent(read("nullish-prose-first"), "page.tsx");
+  assert.equal(findings.length >= 1, true);
+  assert.ok(findings[0].message.includes("answerFirst"));
+  assert.equal(findings[0].level, "error");
+});
+
+test("a ?? chain with the assembled literal last is not reported", () => {
+  assert.deepEqual(checkAssembledContent(read("nullish-chain-literal-last"), "page.tsx"), []);
 });
 
 test("a template literal containing ${} is reported", () => {

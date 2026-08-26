@@ -19,21 +19,30 @@
 // of those literal parts itself contains `${}`, the interpolation rule
 // above still fires on it).
 //
-// A `X ?? <literal>` expression is never flagged, whatever `X` is and
-// whatever shape the literal takes (interpolated, spliced, or plain). `??`
-// means "fall back to the right side when the left has nothing" by
-// construction — that IS the FALLBACK pattern this checker exists to
-// allow, and the read jvto-web actually uses varies too much by call site
-// (`page?.meta.description`, `ecosystemAnswer`, `review.review?.slice(...)`)
-// to name-match reliably. An earlier version tried a literal-substring
-// guard (`page?.raw`, `pc.`, `ecosystemPage`) and it produced four false
-// positives on exactly this pattern on its first real-repo run. The
-// shape-based replacement does not attempt to verify the left side reads
-// from ekosistem at all, and accepts the resulting gap on principle:
-// `someLocalValue ?? <assembled prose>` can escape this checker. That is a
-// smaller cost than a checker that fires on correct code from a
-// PostToolUse hook that runs on every .tsx edit — false positives are how
-// a checker gets muted.
+// `X ?? <literal>` is never flagged, whatever `X` is and whatever shape the
+// literal takes (interpolated, spliced, or plain) — `??` means "fall back
+// to the right side when the left has nothing" by construction, which IS
+// the FALLBACK pattern this checker exists to allow, and the read jvto-web
+// actually uses varies too much by call site (`page?.meta.description`,
+// `ecosystemAnswer`, `review.review?.slice(...)`) to name-match reliably.
+// An earlier version tried a literal-substring guard (`page?.raw`, `pc.`,
+// `ecosystemPage`) and it produced four false positives on exactly this
+// pattern on its first real-repo run. This exemption is intentionally
+// one-sided: it protects the literal sitting in the FINAL fallback
+// position of a `??` chain (`a ?? b ?? <literal>` still exempts, since the
+// literal is still the last fallback), but does NOT protect prose sitting
+// earlier in the chain — `<assembled prose> ?? fallback` means the prose
+// IS the primary value, the opposite of a fallback, and still fires. Two
+// gaps are accepted on principle, not by oversight, and for different
+// reasons:
+//   - `someLocalValue ?? <assembled prose>`: accepted, because verifying
+//     the left side actually reads from ekosistem is exactly the
+//     brittleness the name-substring guard's four false positives forced
+//     off — the alternative is a checker that fires on correct code from a
+//     PostToolUse hook running on every .tsx edit, and gets muted for it.
+//   - `<assembled prose> ?? fallback`: NOT accepted — that shape asserts
+//     the assembled value as primary, not as a fallback, so nothing about
+//     "?? means fallback" applies to protect it, and it still fires.
 //
 // Short splices are allowed through too (a one-line placeholder isn't the
 // failure mode this exists for); the 60-character floor on the literal
@@ -62,8 +71,8 @@ const MIN_LENGTH = 60;
  * Walks `expr` once, tracking quote/template-literal state and
  * paren/bracket/brace nesting depth, and calls `onMatch(index)` for every
  * index where `token` starts at top level: not inside a string, and not
- * nested inside a call, array, or object. Shared by the `??`-fallback
- * finder and the `+`-concatenation splitter below, since both need "top
+ * nested inside a call, array, or object. Shared by the `??`-chain
+ * splitter and the `+`-concatenation splitter below, since both need "top
  * level" to mean the same thing.
  */
 function scanTopLevel(expr, token, onMatch) {
@@ -96,16 +105,22 @@ function scanTopLevel(expr, token, onMatch) {
 }
 
 /**
- * True when `expr` contains a top-level `??` — a `X ?? <literal>` shape,
- * whatever `X` is. Deliberately does not inspect what's on either side:
- * see the header comment for why that's the point, not an oversight.
+ * Splits `expr` on every top-level `??`, returning the chain of operands in
+ * order (`a ?? b ?? c` -> `["a", "b", "c"]`; no `??` at all -> `[expr]`).
+ * The LAST element is always the chain's final fallback position.
  */
-function hasTopLevelNullish(expr) {
-  let found = false;
-  scanTopLevel(expr, "??", () => {
-    found = true;
-  });
-  return found;
+function splitTopLevelNullishChain(expr) {
+  const splitPoints = [];
+  scanTopLevel(expr, "??", (i) => splitPoints.push(i));
+  if (splitPoints.length === 0) return [expr];
+  const parts = [];
+  let start = 0;
+  for (const i of splitPoints) {
+    parts.push(expr.slice(start, i).trim());
+    start = i + 2;
+  }
+  parts.push(expr.slice(start).trim());
+  return parts;
 }
 
 function splitTopLevelPlus(expr) {
@@ -136,6 +151,20 @@ function isAssembledShape(expr) {
   return INTERPOLATED_TEMPLATE_RE.test(expr) || hasSplicedConcatenation(expr);
 }
 
+/**
+ * True when assembled prose sits somewhere other than the final fallback
+ * position of a `??` chain. With no `??` at all, the whole expression is
+ * the (only) position, so this is just isAssembledShape(expr). With one or
+ * more `??`, only the LAST chain link is a protected fallback position —
+ * every earlier link is checked, because assembled prose there is the
+ * primary value the expression asserts, not a fallback for anything.
+ */
+function hasAssembledProseInPrimaryPosition(expr) {
+  const parts = splitTopLevelNullishChain(expr);
+  if (parts.length === 1) return isAssembledShape(parts[0]);
+  return parts.slice(0, -1).some((part) => isAssembledShape(part));
+}
+
 function literalContentLength(expr) {
   let total = 0;
   for (const m of expr.matchAll(LITERAL_SEGMENT_RE)) {
@@ -158,8 +187,7 @@ export function checkAssembledContent(source, file) {
     if (!NAME_RE.test(name)) continue;
 
     const expr = m[2].trim();
-    if (hasTopLevelNullish(expr)) continue; // X ?? <literal> — fallback by construction
-    if (!isAssembledShape(expr)) continue; // no interpolation, no splicing — not assembled
+    if (!hasAssembledProseInPrimaryPosition(expr)) continue;
     if (literalContentLength(expr) <= MIN_LENGTH) continue;
 
     findings.push(
