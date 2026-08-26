@@ -1,17 +1,25 @@
 // Catches the four mechanical failures of an answer-first block:
-//   1. Word count outside the 40-60 range.
-//   2. Fewer than three quantified, distinct facts.
+//   1. Word count outside the 40-60 range (error — objective: count the words).
+//   2. Fewer than three quantified, distinct facts (warning, not an error —
+//      the fact list is a heuristic that has already been widened twice
+//      during this build, and it still fires on 22 of 56 live blocks
+//      (40% of the corpus). A per-edit hook that blocks on a heuristic
+//      firing that often is exactly the muted-checker outcome the
+//      checker-hygiene skill exists to prevent; word count and the volatile-
+//      literal rule below stay errors because both are objective, not a
+//      judgment call about what counts as a fact).
 //   3. A fluff-blacklist adjective standing alone (warning, never an error —
 //      one adjective beside a real number is defensible, and a checker that
 //      blocks on taste gets muted).
-//   4. A volatile number written as a literal where a stable token exists.
+//   4. A volatile number written as a literal where a stable token exists
+//      (error — objective: the literal is either there or it isn't).
 //
 // Pure logic lives in checkAnswerFirst() so tests can call it directly with
 // no I/O. The CLI wrapper below walks the ekosistem repo, or checks only the
 // explicit file paths given on the command line.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { finding, report, ekosystemRoot, requireRepo, rootOverride } from "./lib/repos.mjs";
+import { finding, report, ekosystemRoot, requireRepo, rootOverride, runCli } from "./lib/repos.mjs";
 
 export const WORD_MIN = 40;
 export const WORD_MAX = 60;
@@ -133,19 +141,39 @@ function countWords(text) {
     .filter(Boolean).length;
 }
 
+// Two FACT_PATTERNS entries can both match the same underlying number: the
+// bare unit-first currency pattern matches "IDR 10" (its [A-Za-z]* trailer
+// matches zero letters when the next character is a space, so it stops
+// there), while the magnitude-word pattern separately matches the longer
+// "IDR 10 million" starting at the very same "I". Both landed in the
+// `matches` Set as different strings, so one written number satisfied
+// two-thirds of the three-fact gate by itself. Spans are collected with
+// their start/end offsets so a shorter match fully contained inside a longer
+// one at the same position — never a coincidence, always the same number
+// caught twice — is dropped, keeping only the longest (most specific) match
+// for that position. A literal repeat of the exact same fact text elsewhere
+// in the block still collapses via the Set, same as before.
 function countDistinctFacts(text) {
-  const matches = new Set();
+  const spans = [];
   for (const pattern of FACT_PATTERNS) {
     for (const m of text.matchAll(pattern)) {
-      matches.add(m[0]);
+      spans.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
     }
   }
   for (const m of text.matchAll(CARDINAL_RE)) {
     if (!CARDINAL_STOPWORDS.has(m[1].toLowerCase())) {
-      matches.add(m[0]);
+      spans.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
     }
   }
-  return matches;
+
+  spans.sort((a, b) => a.start - b.start || b.end - a.end);
+  const kept = [];
+  for (const span of spans) {
+    const containedInKept = kept.some((k) => span.start >= k.start && span.end <= k.end);
+    if (!containedInKept) kept.push(span);
+  }
+
+  return new Set(kept.map((s) => s.text));
 }
 
 /**
@@ -165,9 +193,12 @@ export function checkAnswerFirst(text, filePath) {
 
   const facts = countDistinctFacts(text);
   if (facts.size < 3) {
+    // Warning, not error — see the file header. This heuristic fires on 22
+    // of 56 live blocks (40% of the corpus); a per-edit hook that blocks on
+    // that is the muted-checker outcome checker-hygiene exists to prevent.
     findings.push(
       finding(
-        "error",
+        "warn",
         filePath,
         `Only ${facts.size} quantified fact(s) found — fewer than three is not enough for an answer-first block.`,
       ),
@@ -240,6 +271,14 @@ function main() {
       continue;
     }
     if (arg === "--json") continue;
+    if (arg.startsWith("--")) {
+      // An unrecognised flag used to fall through to `positionals` and get
+      // silently treated as a file path (which then just found no
+      // answerFirst text and was skipped) — a typo'd flag looked like it
+      // ran clean. Reject it instead.
+      console.error(`check-answer-first: unknown flag ${arg}`);
+      process.exit(1);
+    }
     positionals.push(arg);
   }
 
@@ -259,5 +298,5 @@ function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
+  runCli("check-answer-first", main);
 }

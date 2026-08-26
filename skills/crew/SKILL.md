@@ -38,9 +38,12 @@ they're credited by.
 ## Checked by
 
 `scripts/check-answer-first.mjs` applies to crew answer blocks (same
-40-60-word, three-fact, no-pronoun rules as any other answer-first block).
-No dedicated checker verifies alias indexing or attribution union itself —
-that part is judgment only.
+word-count and fact-count rules as any other answer-first block — word
+count is an error, fact count a warning; see `answer-first`'s Checked by
+section). The no-pronoun rule (answer-first rule 9) is real but not
+mechanically enforced by that checker — it has no pronoun check at all;
+following it is judgment only, same as alias indexing and attribution
+union.
 
 ## Stops and asks
 

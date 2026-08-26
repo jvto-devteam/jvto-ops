@@ -71,10 +71,14 @@ hardcodes a volatile number — replace with `{GOOGLE_RATING}` /
 ## Checked by
 
 `scripts/check-answer-first.mjs` — word count 40-60 (error), fewer than three
-quantified facts (error), fluff-blacklist adjective (warning), volatile
-number written as a literal where a token exists (error). Wired to
-`PostToolUse` on `*.source.json` / `*.content.json` edits under
-`1-knowledge-and-evidence-core`.
+quantified facts (warning — this heuristic's fact list has already been
+widened twice during this build and still fires on 22 of 56 live blocks;
+word count and the volatile-literal rule below stay errors because both are
+objective, not a judgment call about what counts as a fact), fluff-blacklist
+adjective (warning), volatile number written as a literal where a token
+exists (error). Wired to `PostToolUse` on `*.source.json` edits anywhere
+under `1-knowledge-and-evidence-core`, and `*.content.json` edits
+specifically under its `destination-knowledge` subdirectory.
 
 ## Stops and asks
 
