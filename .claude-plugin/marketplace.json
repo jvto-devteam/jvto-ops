@@ -8,7 +8,7 @@
     {
       "name": "jvto-ops",
       "description": "Operational rules for the JVTO content ecosystem, as skills that create and repair.",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "source": "./"
     }
   ]
