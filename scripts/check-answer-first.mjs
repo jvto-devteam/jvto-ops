@@ -139,7 +139,16 @@ const FACT_PATTERNS = [
   // A number with a unit: m, km, kg, mdpl, minutes/hours/days/nights, pax, %, IDR, Rp.
   // Trailing lookahead (not \b) because "%" isn't a word character, so a
   // word boundary assertion right after it never fires.
-  /\b\d[\d,.]*\s*(?:m|km|kg|mdpl|minutes?|hours?|days?|nights?|pax|%)(?![A-Za-z])/gi,
+  // A clock time, and a range of them: 00:30-01:00.
+  /\b\d{1,2}:\d{2}\b/g,
+  // A number with a symbol unit, optionally a range: 3-8°C, 20%.
+  /\b\d[\d,.]*(?:\s*[-–]\s*\d[\d,.]*)?\s*(?:°C|°F|%)/g,
+  // A number with a unit, in the spec's own words. The unit was a hardcoded
+  // list — m, km, kg, minutes, hours, pax — which is not what "angka
+  // bersatuan" means, and it read "253 stone steps", "18 guests" and
+  // "30-minute walk" as no fact at all. Any number attached to a word is a
+  // measurement; the stoplist below removes the few that are not.
+  /\b\d[\d,.]*(?:\s*[-–]\s*\d[\d,.]*)?[\s-]?([A-Za-z][A-Za-z-]{1,})/g,
   // Unit-first currency, number attached directly to the unit (IDR 1.55M).
   /\b(?:IDR|Rp)\s*[\d,.]+[A-Za-z]*\b/gi,
   // Unit-first currency with a spelled-out magnitude word (IDR 10 million,
