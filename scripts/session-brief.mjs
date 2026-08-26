@@ -7,7 +7,7 @@
 // trains people to ignore it.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { ekosystemRoot, rootOverride } from "./lib/repos.mjs";
+import { ekosystemRoot, rootOverride, runCli } from "./lib/repos.mjs";
 
 export function formatBrief(goals) {
   const lines = [];
@@ -56,5 +56,9 @@ function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
+  // session-brief never calls requireRepo() (a missing goals.json already
+  // degrades to silent exit 0 above), but it's wrapped the same way as the
+  // other four scripts anyway — one consistent CLI entry-point convention,
+  // and a safety net against any future change here that starts throwing.
+  runCli("session-brief", main);
 }

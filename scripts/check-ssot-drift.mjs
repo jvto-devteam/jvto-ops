@@ -53,7 +53,7 @@
 // src/components for .tsx files.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { finding, report, webRoot, requireRepo, rootOverride } from "./lib/repos.mjs";
+import { finding, report, webRoot, requireRepo, rootOverride, runCli } from "./lib/repos.mjs";
 
 const NAME_RE = /answerFirst|lede|summary|description/i;
 const LITERAL_SEGMENT_RE = /`([^`]*)`|"([^"]*)"|'([^']*)'/g;
@@ -258,5 +258,5 @@ function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
+  runCli("check-ssot-drift", main);
 }

@@ -1,8 +1,10 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { selectChecker } from "../scripts/hook-dispatch.mjs";
 
 // Fixed, isolated repo roots so path-containment tests don't depend on
@@ -68,6 +70,25 @@ test("post-edit on a .content.json under destination-knowledge selects check-ans
     },
   };
   assert.equal(selectChecker("post-edit", payload), "check-answer-first");
+});
+
+test("post-edit on a .content.json outside destination-knowledge selects nothing", () => {
+  // check-answer-first's own CLI sweep (collectTargetFiles) only ever walks
+  // destination-knowledge for *.content.json — a look-alike .content.json
+  // sitting elsewhere in 1-knowledge-and-evidence-core is never part of
+  // that sweep, so this hook must not fire on it either. Before this fix,
+  // hook-dispatch matched any .content.json anywhere under core.
+  const payload = {
+    tool_input: {
+      file_path: path.join(
+        ekoRoot,
+        "1-knowledge-and-evidence-core",
+        "some-other-section",
+        "x.content.json",
+      ),
+    },
+  };
+  assert.equal(selectChecker("post-edit", payload), null);
 });
 
 test("post-edit on package.json selects check-script-wiring", () => {
@@ -139,4 +160,153 @@ test("pre-push whose command is a dry-run push still selects check-graph-integri
 
 test("an unknown mode selects nothing", () => {
   assert.equal(selectChecker("something-else", { tool_input: { file_path: "x.tsx" } }), null);
+});
+
+// CLI-level tests: the actual JSON hook-dispatch prints on its own stdout,
+// which is what C1/C2/C3 are about. selectChecker() being right doesn't
+// prove the process actually denies a push or surfaces a warning — these
+// spawn the real dispatcher and read what it wrote.
+const HOOK_DISPATCH_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "scripts",
+  "hook-dispatch.mjs",
+);
+
+function runDispatch(mode, payload, env) {
+  return spawnSync(process.execPath, [HOOK_DISPATCH_PATH, mode], {
+    input: JSON.stringify(payload),
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+}
+
+test("pre-push against a repo with a real dangling reference produces the deny JSON, exit 0", () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), "jvto-ops-test-dispatch-dangling-"));
+  try {
+    const pagesDir = path.join(repoDir, "5-experience-engine", "json-ld", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(
+      path.join(pagesDir, "x.schema-output.json"),
+      JSON.stringify({
+        json_ld: {
+          "@graph": [
+            {
+              "@id": "https://javavolcano-touroperator.com/#org",
+              "@type": "Organization",
+              "name": "X",
+              publisher: { "@id": "https://javavolcano-touroperator.com/#missing" },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = runDispatch(
+      "pre-push",
+      { tool_input: { command: "git push origin main" } },
+      { JVTO_EKOSYSTEM_ROOT: repoDir },
+    );
+
+    assert.equal(result.status, 0);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.hookSpecificOutput.hookEventName, "PreToolUse");
+    assert.equal(parsed.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(parsed.hookSpecificOutput.permissionDecisionReason, /never defined/);
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("pre-push against a missing ekosistem repo does not deny — missing input is not a finding", () => {
+  const missingDir = path.join(tmpdir(), "jvto-ops-test-dispatch-missing-repo-4711");
+  const result = runDispatch(
+    "pre-push",
+    { tool_input: { command: "git push origin main" } },
+    { JVTO_EKOSYSTEM_ROOT: missingDir },
+  );
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), "");
+});
+
+test("pre-push against a clean repo produces no output and does not deny", () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), "jvto-ops-test-dispatch-clean-"));
+  try {
+    const pagesDir = path.join(repoDir, "5-experience-engine", "json-ld", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(
+      path.join(pagesDir, "x.schema-output.json"),
+      JSON.stringify({
+        json_ld: {
+          "@graph": [
+            {
+              "@id": "https://javavolcano-touroperator.com/#org",
+              "@type": "Organization",
+              "name": "X",
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = runDispatch(
+      "pre-push",
+      { tool_input: { command: "git push origin main" } },
+      { JVTO_EKOSYSTEM_ROOT: repoDir },
+    );
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim(), "");
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("post-edit with a warn-level finding produces additionalContext, exit 0", () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), "jvto-ops-test-dispatch-warn-"));
+  try {
+    const dkDir = path.join(repoDir, "1-knowledge-and-evidence-core", "destination-knowledge");
+    mkdirSync(dkDir, { recursive: true });
+    const filePath = path.join(dkDir, "x.content.json");
+    // Fact-poor (fluff-only) prose in the 40-60 word range: this fires only
+    // the fact-count and fluff-adjective findings, both warn-level — no
+    // error-level finding at all, so this pins that a purely-warn result
+    // still surfaces via additionalContext, not silence.
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        answerFirst:
+          "Kawah Ijen is a truly breathtaking destination and an unforgettable experience for every traveller. The stunning blue fire is the best sight in East Java, and our professional team makes it a once-in-a-lifetime trip you will treasure for many years.",
+      }),
+    );
+
+    const result = runDispatch(
+      "post-edit",
+      { tool_input: { file_path: filePath } },
+      { JVTO_EKOSYSTEM_ROOT: repoDir },
+    );
+
+    assert.equal(result.status, 0);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.hookSpecificOutput.hookEventName, "PostToolUse");
+    assert.match(parsed.hookSpecificOutput.additionalContext, /fewer than three|Fluff adjective/);
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("post-edit against a missing ekosistem repo produces no output and does not warn", () => {
+  const missingDir = path.join(tmpdir(), "jvto-ops-test-dispatch-missing-post-edit-4712");
+  const filePath = path.join(
+    missingDir,
+    "1-knowledge-and-evidence-core",
+    "destination-knowledge",
+    "x.content.json",
+  );
+  const result = runDispatch(
+    "post-edit",
+    { tool_input: { file_path: filePath } },
+    { JVTO_EKOSYSTEM_ROOT: missingDir },
+  );
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout.trim(), "");
 });

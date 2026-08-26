@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   collectGraph,
   checkGraph,
@@ -14,12 +18,23 @@ const load = (name) =>
 
 const fixturePath = (name) => new URL(`./fixtures/graph/${name}`, import.meta.url);
 
+// Every fixture uses https://x.test as its id space. Production only treats
+// https://javavolcano-touroperator.com as owned (see check-graph-integrity.mjs
+// OWNED_ID_PREFIXES) — the test prefix is injected here via checkGraph()'s
+// ownedIdPrefixes option instead of ever being baked into the shipped code.
+const TEST_OWNED_ID_PREFIXES = ["https://x.test"];
+
 test("a graph whose references all resolve produces no findings", () => {
-  assert.deepEqual(checkGraph(collectGraph([load("clean")])), []);
+  assert.deepEqual(
+    checkGraph(collectGraph([load("clean")]), { ownedIdPrefixes: TEST_OWNED_ID_PREFIXES }),
+    [],
+  );
 });
 
 test("a dangling reference is reported with the predicate that carries it", () => {
-  const findings = checkGraph(collectGraph([load("dangling")]));
+  const findings = checkGraph(collectGraph([load("dangling")]), {
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
+  });
   const dangling = findings.filter((f) => /never defined/.test(f.message));
   assert.equal(dangling.length, 1);
   assert.ok(dangling[0].message.includes("#org-dumont-reiseverlag"));
@@ -28,12 +43,16 @@ test("a dangling reference is reported with the predicate that carries it", () =
 });
 
 test("a bare url value is not mistaken for a node reference", () => {
-  const findings = checkGraph(collectGraph([load("dangling")]));
+  const findings = checkGraph(collectGraph([load("dangling")]), {
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
+  });
   assert.ok(!findings.some((f) => f.message.includes("only-a-url")));
 });
 
 test("an inline node duplicating a registry entry by name is reported", () => {
-  const findings = checkGraph(collectGraph([load("inline-duplicate")]));
+  const findings = checkGraph(collectGraph([load("inline-duplicate")]), {
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
+  });
   const dupes = findings.filter((f) => /inline/.test(f.message));
   assert.equal(dupes.length, 1);
   assert.ok(dupes[0].message.includes("#org-polpar-bondowoso"));
@@ -42,7 +61,10 @@ test("an inline node duplicating a registry entry by name is reported", () => {
 test("a node defined on one document and referenced from another resolves", () => {
   const a = { "@graph": [{ "@id": "https://x.test/#a", "@type": "Thing", "name": "A" }] };
   const b = { "@graph": [{ "@id": "https://x.test/#b", "@type": "Thing", "about": { "@id": "https://x.test/#a" } }] };
-  assert.deepEqual(checkGraph(collectGraph([a, b])), []);
+  assert.deepEqual(
+    checkGraph(collectGraph([a, b]), { ownedIdPrefixes: TEST_OWNED_ID_PREFIXES }),
+    [],
+  );
 });
 
 // Pins the cross-repo seam end to end, through resolveScanInputs() — the
@@ -66,11 +88,17 @@ test("resolveScanInputs seeds the literal-id exemption offline, not live", () =>
   };
 
   const offline = resolveScanInputs({ live: false, docs: [doc], exemptions: CONSUMER_FIXTURE });
-  const offlineFindings = checkGraph(collectGraph(offline.docs), { exemptPatterns: offline.exemptPatterns });
+  const offlineFindings = checkGraph(collectGraph(offline.docs), {
+    exemptPatterns: offline.exemptPatterns,
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
+  });
   assert.ok(!offlineFindings.some((f) => f.message.includes("#consumer-built-founder")));
 
   const live = resolveScanInputs({ live: true, docs: [doc], exemptions: CONSUMER_FIXTURE });
-  const liveFindings = checkGraph(collectGraph(live.docs), { exemptPatterns: live.exemptPatterns });
+  const liveFindings = checkGraph(collectGraph(live.docs), {
+    exemptPatterns: live.exemptPatterns,
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
+  });
   const dangling = liveFindings.filter((f) => /never defined/.test(f.message));
   assert.equal(dangling.length, 1);
   assert.ok(dangling[0].message.includes("#consumer-built-founder"));
@@ -97,6 +125,7 @@ test("resolveScanInputs' pattern exemption is scoped to onlyUnderPredicates, and
   const offlineScoped = resolveScanInputs({ live: false, docs: [scopedDoc], exemptions: CONSUMER_FIXTURE });
   const offlineScopedFindings = checkGraph(collectGraph(offlineScoped.docs), {
     exemptPatterns: offlineScoped.exemptPatterns,
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
   });
   assert.ok(!offlineScopedFindings.some((f) => f.message.includes(matchingId)));
 
@@ -114,13 +143,17 @@ test("resolveScanInputs' pattern exemption is scoped to onlyUnderPredicates, and
   const offlineWrongPred = resolveScanInputs({ live: false, docs: [wrongPredicateDoc], exemptions: CONSUMER_FIXTURE });
   const offlineWrongPredFindings = checkGraph(collectGraph(offlineWrongPred.docs), {
     exemptPatterns: offlineWrongPred.exemptPatterns,
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
   });
   assert.ok(offlineWrongPredFindings.some((f) => f.message.includes(matchingId) && /never defined/.test(f.message)));
 
   // Same id, right predicate, but live — the pattern must not apply there
   // either, since the fetched graph is already the full merge.
   const live = resolveScanInputs({ live: true, docs: [scopedDoc], exemptions: CONSUMER_FIXTURE });
-  const liveFindings = checkGraph(collectGraph(live.docs), { exemptPatterns: live.exemptPatterns });
+  const liveFindings = checkGraph(collectGraph(live.docs), {
+    exemptPatterns: live.exemptPatterns,
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
+  });
   assert.ok(liveFindings.some((f) => f.message.includes(matchingId) && /never defined/.test(f.message)));
 
   // A query string is not part of the slug class: [^/#?]+ stops at "?", so
@@ -146,6 +179,7 @@ test("resolveScanInputs' pattern exemption is scoped to onlyUnderPredicates, and
   });
   const offlineQueryStringFindings = checkGraph(collectGraph(offlineQueryString.docs), {
     exemptPatterns: offlineQueryString.exemptPatterns,
+    ownedIdPrefixes: TEST_OWNED_ID_PREFIXES,
   });
   assert.ok(
     offlineQueryStringFindings.some((f) => f.message.includes(queryStringId) && /never defined/.test(f.message)),
@@ -160,4 +194,71 @@ test("loadConsumerDefinedIds degrades to no exemptions when the file is missing"
     docs: [],
     exemptPatterns: [],
   });
+});
+
+// CLI-level: a missing sibling repo must degrade to a quiet skip, never a
+// crash. This is the exact defect C2 fixes — requireRepo() throwing out of
+// async main() used to produce an unhandled rejection, exit 1, and a raw
+// stack trace, which (once C1 made the pre-push path actually block)
+// would have denied every `git push` in a worktree missing the sibling.
+const SCRIPT_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "scripts",
+  "check-graph-integrity.mjs",
+);
+
+test("a missing ekosistem repo exits 0 with a skip notice, not a crash", () => {
+  const missingDir = path.join(tmpdir(), "jvto-ops-test-definitely-missing-repo-4711");
+  const result = spawnSync(process.execPath, [SCRIPT_PATH], {
+    encoding: "utf8",
+    env: { ...process.env, JVTO_EKOSYSTEM_ROOT: missingDir },
+  });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /skipped/);
+  assert.doesNotMatch(result.stdout, /at Object|at file:|\.mjs:\d+:\d+/); // no raw stack trace
+});
+
+test("a missing ekosistem repo under --json still exits 0 and reports skipped: true", () => {
+  const missingDir = path.join(tmpdir(), "jvto-ops-test-definitely-missing-repo-4712");
+  const result = spawnSync(process.execPath, [SCRIPT_PATH, "--json"], {
+    encoding: "utf8",
+    env: { ...process.env, JVTO_EKOSYSTEM_ROOT: missingDir },
+  });
+  assert.equal(result.status, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.checker, "check-graph-integrity");
+  assert.equal(parsed.skipped, true);
+});
+
+test("a real graph failure against an actual (non-missing) repo still exits 1", () => {
+  const repoDir = mkdtempSync(path.join(tmpdir(), "jvto-ops-test-real-repo-"));
+  try {
+    const pagesDir = path.join(repoDir, "5-experience-engine", "json-ld", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    const danglingDoc = {
+      json_ld: {
+        "@graph": [
+          {
+            "@id": "https://javavolcano-touroperator.com/#org",
+            "@type": "Organization",
+            "name": "X",
+            "publisher": { "@id": "https://javavolcano-touroperator.com/#missing" },
+          },
+        ],
+      },
+    };
+    writeFileSync(path.join(pagesDir, "x.schema-output.json"), JSON.stringify(danglingDoc));
+
+    const result = spawnSync(process.execPath, [SCRIPT_PATH, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, JVTO_EKOSYSTEM_ROOT: repoDir },
+    });
+    assert.equal(result.status, 1);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.checker, "check-graph-integrity");
+    assert.ok(parsed.findings.some((f) => f.level === "error" && /never defined/.test(f.message)));
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
 });

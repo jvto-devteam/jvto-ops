@@ -47,7 +47,15 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { finding, report, ekosystemRoot, webRoot, requireRepo, rootOverride } from "./lib/repos.mjs";
+import {
+  finding,
+  report,
+  ekosystemRoot,
+  webRoot,
+  requireRepo,
+  rootOverride,
+  runCli,
+} from "./lib/repos.mjs";
 
 export const VALUE_PREDICATES = new Set([
   "url",
@@ -63,10 +71,15 @@ export const VALUE_PREDICATES = new Set([
 // Anything else (a third-party domain used as an @id, which happens with
 // sameAs-style identifiers on external profiles) is an external URL, not a
 // registry node, and is never a candidate for "never defined".
-const OWNED_ID_PREFIXES = ["https://javavolcano-touroperator.com", "https://x.test"];
+//
+// Test-only prefixes (e.g. https://x.test, used throughout the fixtures)
+// are never baked in here — they're injected via checkGraph()'s
+// ownedIdPrefixes option instead, so production behavior can't accidentally
+// depend on a value that only makes sense in a test fixture.
+export const OWNED_ID_PREFIXES = ["https://javavolcano-touroperator.com"];
 
-function isOwnedId(id) {
-  return OWNED_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
+function isOwnedId(id, prefixes) {
+  return prefixes.some((prefix) => id.startsWith(prefix));
 }
 
 function isPlainObject(value) {
@@ -182,7 +195,7 @@ function compileExemptPatterns(patterns = []) {
  * per-edge, against edges' own predicate, which is why this checks edges
  * directly instead of pre-seeding a node definition.
  */
-export function checkGraph(graph, { exemptPatterns = [] } = {}) {
+export function checkGraph(graph, { exemptPatterns = [], ownedIdPrefixes = OWNED_ID_PREFIXES } = {}) {
   const { defined, edges, namesById, inlineNamed } = graph;
   const findings = [];
 
@@ -193,7 +206,7 @@ export function checkGraph(graph, { exemptPatterns = [] } = {}) {
   const predsByDst = new Map();
   for (const { pred, dst } of edges) {
     if (defined.has(dst)) continue;
-    if (!isOwnedId(dst)) continue; // external URL, not a registry node
+    if (!isOwnedId(dst, ownedIdPrefixes)) continue; // external URL, not a registry node
     if (isPatternExempt(pred, dst)) continue;
     if (!predsByDst.has(dst)) predsByDst.set(dst, new Set());
     predsByDst.get(dst).add(pred);
@@ -383,5 +396,5 @@ async function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
+  runCli("check-graph-integrity", main);
 }

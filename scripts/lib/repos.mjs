@@ -13,7 +13,6 @@ import path from "node:path";
 const ENV = {
   ekosistem: "JVTO_EKOSYSTEM_ROOT",
   web: "JVTO_WEB_ROOT",
-  platform: "JVTO_PLATFORM_ROOT",
 };
 
 function sibling(name) {
@@ -21,12 +20,17 @@ function sibling(name) {
 }
 
 /**
- * Reads `--repo-root <path>` from argv so every checker can accept the same
- * flag without re-parsing it. Returns the resolved absolute path, or `null`
- * when the flag is absent (or has no value after it).
+ * Reads `<flag> <path>` from argv so every checker can accept the same kind
+ * of override without re-parsing it. Returns the resolved absolute path, or
+ * `null` when the flag is absent (or has no value after it). Defaults to
+ * `--repo-root`, which the single-repo checkers (check-answer-first,
+ * check-graph-integrity, check-ssot-drift) use; check-script-wiring — the
+ * one checker that reads both repos — passes `--web-root` / `--ekosistem-root`
+ * instead, so a single override can no longer be mistaken for both roots at
+ * once.
  */
-export function rootOverride(argv = process.argv.slice(2)) {
-  const i = argv.indexOf("--repo-root");
+export function rootOverride(argv = process.argv.slice(2), flag = "--repo-root") {
+  const i = argv.indexOf(flag);
   return i !== -1 && argv[i + 1] ? path.resolve(argv[i + 1]) : null;
 }
 
@@ -38,18 +42,31 @@ export function webRoot(override) {
   return override ?? process.env[ENV.web] ?? sibling("jvto-web");
 }
 
-export function platformRoot(override) {
-  const dir = override ?? process.env[ENV.platform] ?? sibling("jvto-platform");
-  return existsSync(dir) ? dir : null;
+/**
+ * Thrown by requireRepo() when a repo isn't where it's expected. Its own
+ * class, not a plain Error, so a CLI entry point can tell "the sibling repo
+ * isn't checked out" apart from an actual bug in the checker. The former is
+ * routine — a fresh checkout, a git worktree, CI running this plugin
+ * without both siblings present — and must degrade to a quiet skip, never a
+ * crash or (worse, on the pre-push path) a denied push. Missing input is
+ * not a finding.
+ */
+export class RepoNotFoundError extends Error {
+  constructor(label, dir, envVar) {
+    super(
+      `Cannot find the ${label} repository at ${dir}. ` +
+        `Set ${envVar} to its absolute path, or run from a directory whose sibling is the checkout.`,
+    );
+    this.name = "RepoNotFoundError";
+    this.label = label;
+    this.dir = dir;
+  }
 }
 
 export function requireRepo(label, dir) {
   const envVar = ENV[label] ?? `JVTO_${label.toUpperCase()}_ROOT`;
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
-    throw new Error(
-      `Cannot find the ${label} repository at ${dir}. ` +
-        `Set ${envVar} to its absolute path, or run from a directory whose sibling is the checkout.`,
-    );
+    throw new RepoNotFoundError(label, dir, envVar);
   }
   return dir;
 }
@@ -85,4 +102,47 @@ export function report(checker, findings, argv = process.argv.slice(2)) {
   const warns = findings.length - errors;
   console.log(`${checker}: ${errors} error(s), ${warns} warning(s)`);
   return exitCode;
+}
+
+/**
+ * The "missing input is not a finding" notice: printed instead of running
+ * report() at all, since a repo that isn't checked out produced zero
+ * findings, not a clean scan. Mirrors report()'s two output shapes (plain
+ * text, or a single JSON line under --json) so a caller parsing stdout
+ * (hook-dispatch, in --json mode) can tell "skipped" apart from "ran and
+ * found nothing" without guessing from an empty findings array.
+ */
+export function reportSkippedRepo(checker, err, argv = process.argv.slice(2)) {
+  if (argv.includes("--json")) {
+    console.log(JSON.stringify({ checker, skipped: true, reason: err.message }));
+    return;
+  }
+  console.log(`${checker}: skipped — ${err.message}`);
+}
+
+/**
+ * Every checker's CLI entry point runs through this instead of calling
+ * main() directly, so a missing sibling repo degrades to exit 0 with the
+ * skip notice above instead of an unhandled rejection, a raw stack trace,
+ * and (on the pre-push path, before hook-dispatch stopped trusting exit
+ * codes) a denied `git push` every time a worktree happened to be missing
+ * one sibling. `fn` may be sync or async — wrapping the call in
+ * Promise.resolve().then() lets one .catch() handle both.
+ *
+ * Any OTHER error (an actual bug, not a missing repo) still surfaces — to
+ * stderr, with exit 1 — rather than being swallowed the same way. Only
+ * "repo not found" is treated as routine.
+ */
+export function runCli(checkerName, fn) {
+  Promise.resolve()
+    .then(fn)
+    .catch((err) => {
+      if (err instanceof RepoNotFoundError) {
+        reportSkippedRepo(checkerName, err);
+        process.exit(0);
+        return;
+      }
+      console.error(err?.stack ?? String(err));
+      process.exit(1);
+    });
 }

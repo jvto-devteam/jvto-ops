@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { checkAssembledContent } from "../scripts/check-ssot-drift.mjs";
 
 const read = (name) =>
@@ -61,4 +65,20 @@ test("concatenation splicing a computed (non-literal) value is reported", () => 
   assert.equal(findings.length >= 1, true);
   assert.ok(findings[0].message.includes("answerFirst"));
   assert.equal(findings[0].level, "error");
+});
+
+test("a missing jvto-web repo exits 0 with a skip notice, not a crash", () => {
+  const scriptPath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "scripts",
+    "check-ssot-drift.mjs",
+  );
+  const missingDir = path.join(tmpdir(), "jvto-ops-test-missing-web-8123");
+  const result = spawnSync(process.execPath, [scriptPath], {
+    encoding: "utf8",
+    env: { ...process.env, JVTO_WEB_ROOT: missingDir },
+  });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /skipped/);
 });
