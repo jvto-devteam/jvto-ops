@@ -1,0 +1,9 @@
+{
+  "name": "fixture-web",
+  "scripts": {
+    "build": "next build",
+    "sync:packages": "node scripts/sync-package-readiness.mjs",
+    "audit:geo-visibility": "node scripts/audit-generative-visibility.mjs",
+    "validate:jsonld-schema": "node scripts/validate-jsonld-schema.mjs"
+  }
+}

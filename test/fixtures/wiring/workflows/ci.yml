@@ -1,0 +1,10 @@
+name: CI
+on: [push]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+      - run: npm run sync:packages
+      - run: npm run sync:trust
+      - run: npm run validate:jsonld-schema
