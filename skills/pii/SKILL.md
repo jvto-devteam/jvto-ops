@@ -46,4 +46,8 @@ image; no script in this plugin scans for PII.
 When it's unclear whether a value is PII (a person's private identifier
 versus a public document or registration number), stop and ask rather than
 assume. Over-redacting a public document number destroys evidence;
-under-redacting leaks PII — this call is not automatable.
+under-redacting leaks PII — this call is not automatable. And when two
+sources disagree on a fact — the redaction audit list says a field was
+scrubbed, but a derivative still carries it — report the conflict rather
+than deciding which one is right, the same disputed-fact limit every skill
+in this plugin carries.

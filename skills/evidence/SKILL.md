@@ -23,6 +23,10 @@ needs correcting after a recheck.
    claim cited from the press or a public registry lookup rather than a file
    in hand. Do not imply possession.
 
+Publishing a credential touches both this skill and `entity-graph`: this
+skill places the file and computes its SHA-256 before `entity-graph`'s
+`recognizedBy` edge points at the issuer read from it.
+
 ## Create
 
 Publish a new document: compute its hash, confirm the hash matches the file

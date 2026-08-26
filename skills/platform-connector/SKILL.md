@@ -12,6 +12,9 @@ already owns, or an existing connector needs checking against drift.
 
 ## Rules
 
+*Observations below verified against `sambuko82/jvto-platform` at commit
+`1af424b`.*
+
 1. **The connector reads, it does not own.** jvto-platform never becomes an
    independent source of truth for content ekosistem already owns.
 2. **Every record stores its source and read time**, so staleness is
@@ -45,4 +48,7 @@ none — judgment only. No script in this plugin inspects jvto-platform.
 When it's unclear whether a piece of data belongs in jvto-platform at all,
 versus staying owned by ekosistem and only referenced, stop and ask.
 Building it into the connector regardless is exactly how a third source of
-truth starts.
+truth starts. And when ekosistem and a cached or already-synced record
+disagree on a fact, this skill does not decide which is right — mark the
+record stale and report the conflict, the same disputed-fact limit every
+skill in this plugin carries.

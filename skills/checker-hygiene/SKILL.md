@@ -1,6 +1,6 @@
 ---
 name: checker-hygiene
-description: Write a new checker or repair one that's rotted — when the code or policy a checker inspects changes, the checker changes in the same commit, or it starts crying wolf on a policy that already moved on.
+description: Write a new Node checker (any script sharing the repos.mjs finding/report contract) or repair one that's rotted — when the code or policy a checker inspects changes, the checker changes in the same commit, or it starts crying wolf on a policy that already moved on.
 argument-hint: "[write · repair · unfreeze] [checker]"
 user-invocable: true
 ---

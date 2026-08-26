@@ -32,6 +32,10 @@ one already in the registry; or a push is blocked on a dangling `@id`.
    a guess, and not the most prominent name on it (the same regulator/issuer
    split `claim-restraint` enforces).
 
+Publishing a credential touches both this skill and `evidence`: `evidence`
+places the file and computes its SHA-256 before this skill's `recognizedBy`
+edge points at the issuer read from it.
+
 ## Create
 
 Add a new node with a stable `@id`; wire edges from any document that

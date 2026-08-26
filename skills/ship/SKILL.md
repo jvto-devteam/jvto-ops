@@ -55,4 +55,7 @@ than write off as a flake.
 When a gate failure could be either a real regression or the known
 ekosistem/web timing mismatch, and the log doesn't clearly show which, stop
 and ask rather than force a rerun or force a merge. Never skip the gate to
-get a deploy through.
+get a deploy through. And when two sources disagree on a fact — say, the
+deploy log and the content API disagree about what's actually live — report
+the conflict rather than deciding which one is right, the same disputed-fact
+limit every skill in this plugin carries.

@@ -1,6 +1,6 @@
 ---
 name: measure
-description: Take a live-site measurement baseline before an editorial change and compare against it after, using a measurer that's been validated on a case whose answer is already known — not trusted on its first run.
+description: Take a live-site measurement baseline with the standalone Python auditor (audit-answer-structure.py, not one of the Node repos.mjs checkers) before an editorial change and compare against it after, using a measurer that's been validated on a case whose answer is already known — not trusted on its first run.
 argument-hint: "[baseline · compare · validate] [pages or metric]"
 user-invocable: true
 ---
