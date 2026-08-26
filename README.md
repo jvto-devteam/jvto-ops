@@ -64,7 +64,11 @@ cost.
 | --- | --- | --- |
 | `JVTO_EKOSYSTEM_ROOT` | `../jvto-ekosistem` relative to the working directory | Same sibling-checkout convention `jvto-web` already uses to resolve `jvto-ekosistem` in `src/lib/ecosystemContent`. |
 | `JVTO_WEB_ROOT` | `../jvto-web` relative to the working directory | Same sibling-checkout convention `jvto-web` already uses to resolve `jvto-ekosistem` in `src/lib/ecosystemContent`. |
-| `JVTO_PLATFORM_ROOT` | `../jvto-platform` relative to the working directory | Same sibling-checkout convention `jvto-web` already uses to resolve `jvto-ekosistem` in `src/lib/ecosystemContent`. |
+
+`check-script-wiring` — the one checker that reads both repos — additionally accepts
+`--web-root <path>` / `--ekosistem-root <path>` on the command line, since a single
+`--repo-root` can't disambiguate which root it's for. Every other checker keeps
+`--repo-root <path>` as its single-repo override.
 
 ## Skills
 
@@ -91,10 +95,10 @@ acting.
 
 | Script | Fires on | Catches |
 | --- | --- | --- |
-| `check-answer-first` | `PostToolUse` (`Edit\|Write`), when the edited path is under `jvto-ekosistem`, passes through a `1-knowledge-and-evidence-core` segment, and ends in `.source.json` or `.content.json`. | Word count outside 40-60; fewer than three quantified, distinct facts; a fluff-blacklist adjective standing alone (warning only); a volatile number written as a literal where a stable token exists. |
-| `check-ssot-drift` | `PostToolUse` (`Edit\|Write`), when the edited path is a `.tsx` under `jvto-web/src`. | Page prose assembled inline in a jvto-web consumer component instead of read from jvto-ekosistem — an `answerFirst`/`lede`/`summary`/`description` const whose value splices in a runtime expression (template-literal interpolation, or a `+` join with something other than a plain string/template literal). A `??` fallback to a literal is exempted on purpose. |
-| `check-script-wiring` | `PostToolUse` (`Edit\|Write`), when the edited path's basename is `package.json` or the path includes `/.github/workflows/`, under either `jvto-ekosistem` or `jvto-web`. | A workflow calling `npm run <name>` for a script `package.json` doesn't define (error); an `audit:*`/`validate:*`/`check:*` script that no workflow runs at all (warning — may be deliberately manual). |
-| `check-graph-integrity` | `PreToolUse` (`Bash`), when the command is an actual invocation of `git push` (including a dry run), not merely a mention of the words inside a quoted string or a grep pattern. | Dangling `@id` references in the entity graph and inline duplicate nodes of an entity already in the registry. The only checker cleared to block the tool call. |
+| `check-answer-first` | `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`), when the edited path is under `jvto-ekosistem`, passes through a `1-knowledge-and-evidence-core` segment, and ends in `.source.json` (anywhere under that segment) or `.content.json` (specifically under its `destination-knowledge` subdirectory). | Word count outside 40-60 (error); fewer than three quantified, distinct facts (warning — a heuristic that already fires on 22 of 56 live blocks); a fluff-blacklist adjective standing alone (warning); a volatile number written as a literal where a stable token exists (error). |
+| `check-ssot-drift` | `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`), when the edited path is a `.tsx` under `jvto-web/src`. | Page prose assembled inline in a jvto-web consumer component instead of read from jvto-ekosistem — an `answerFirst`/`lede`/`summary`/`description` const whose value splices in a runtime expression (template-literal interpolation, or a `+` join with something other than a plain string/template literal). A `??` fallback to a literal is exempted on purpose. |
+| `check-script-wiring` | `PostToolUse` (`Edit\|Write\|MultiEdit\|NotebookEdit`), when the edited path's basename is `package.json` or the path includes `/.github/workflows/`, under either `jvto-ekosistem` or `jvto-web`. | A workflow calling `npm run <name>` for a script `package.json` doesn't define (error); an `audit:*`/`validate:*`/`check:*` script that no workflow runs at all (warning — may be deliberately manual, per a `why`/`addedOn`-documented allowlist scoped separately for each repo). Findings are attributed to their repo (`web/package.json` vs. `ekosistem/package.json`) so a two-repo run doesn't show the same message twice with no way to tell them apart. |
+| `check-graph-integrity` | `PreToolUse` (`Bash`), when the command is an actual invocation of `git push` (including a dry run), not merely a mention of the words inside a quoted string or a grep pattern. | Dangling `@id` references in the entity graph and inline duplicate nodes of an entity already in the registry. The only checker cleared to block the tool call — it denies via `hookSpecificOutput.permissionDecision: "deny"` on `hook-dispatch.mjs`'s own stdout, not by propagating an exit code. |
 | `audit-answer-structure.py` | manual / weekly — no hook reaches it; it fetches all 291 live pages, too slow for any per-edit or per-push trigger. | Live-site fact density and answer-structure conformance against the spec, measured before and after an editorial change with the same tool so an improvement claim is actually checkable. |
 
 ## Hooks
@@ -102,13 +106,26 @@ acting.
 | Hook | Matcher | Dispatches to | Selection |
 | --- | --- | --- | --- |
 | `SessionStart` | `startup\|clear\|compact` | `scripts/session-brief.mjs` | Always — prints the open backlog from `state/goals.json` if that file exists, prints nothing otherwise. |
-| `PostToolUse` | `Edit\|Write` | `scripts/hook-dispatch.mjs post-edit` | By the edited path: `*.source.json` / `*.content.json` under `1-knowledge-and-evidence-core` → `check-answer-first`; a `.tsx` under `jvto-web/src` → `check-ssot-drift`; `package.json` or anything under `.github/workflows` → `check-script-wiring`. |
+| `PostToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | `scripts/hook-dispatch.mjs post-edit` | By the edited path: `*.source.json` under `1-knowledge-and-evidence-core` (any subdirectory) or `*.content.json` under its `destination-knowledge` subdirectory specifically → `check-answer-first`; a `.tsx` under `jvto-web/src` → `check-ssot-drift`; `package.json` or anything under `.github/workflows` → `check-script-wiring`. |
 | `PreToolUse` | `Bash` | `scripts/hook-dispatch.mjs pre-push` | When the command matches `git push` → `check-graph-integrity`. Every other command dispatches nothing. |
 
 The policy across all of it: everything warns, and only `check-graph-integrity` is allowed
 to block a push. It is the only checker in this plugin with no known false positives — the
 other checkers report findings but never fail the hook, because a checker that cries wolf
 gets muted, and a muted checker is worse than no checker at all.
+
+Mechanically, `hook-dispatch.mjs` runs the selected checker with `--json`, reads its
+findings, and never touches its own exit code to communicate a result — a `PreToolUse` hook
+does not block on exit 1 (only exit 2, or a JSON decision, blocks), and this plugin's
+checkers already use exit 1 to mean "an error-level finding exists," a CLI-only contract
+that means something different to a hook. So a pre-push `check-graph-integrity` failure is
+denied by printing `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",...}}`
+on stdout, and every post-edit finding (of any level — post-edit can't block anyway, the
+edit already happened) is surfaced via `hookSpecificOutput.additionalContext`, since plain
+stdout on exit 0 is never surfaced to the model. A sibling repo that isn't checked out
+(a fresh checkout, a git worktree, CI without both repos present) degrades to a quiet skip
+— exit 0, nothing printed — on every checker: missing input is not a finding, and must never
+be treated as one that denies a push.
 
 ## Goals file
 
