@@ -12,8 +12,10 @@ already owns, or an existing connector needs checking against drift.
 
 ## Rules
 
-*Observations below verified against `sambuko82/jvto-platform` at commit
-`1af424b`.*
+*Observations below re-verified against `sambuko82/jvto-platform` at commit
+`1af424b` on 2026-08-27, still that repo's HEAD. It is a pnpm/Turbo
+monorepo: the connector layer is
+`apps/backend/app/integrations/connectors/`, not `app/...`.*
 
 1. **The connector reads, it does not own.** jvto-platform never becomes an
    independent source of truth for content ekosistem already owns.
@@ -22,9 +24,23 @@ already owns, or an existing connector needs checking against drift.
 3. **When the source changes, the copy is marked stale — not quietly
    kept.** A connector must never silently keep serving outdated data as if
    it were current.
-4. **The current connector is a stub.** It returns a fixed
+4. **The connector layer does not import.** Read this before planning any
+   work against it: `jvto_ecosystem_connector.py`, `llm_wiki_connector.py`,
+   `nocodb_connector.py` and `integrations/source_registry.py` all open with
+   `from app.integrations.connectors.base_connector import
+   SourceConnectorBase`, and **`base_connector.py` does not exist anywhere
+   in the repo** — there is no `__init__.py` in `connectors/` either.
+   Importing any of the four raises `ModuleNotFoundError`. So the first task
+   is not writing a real read; it is defining the base class the whole layer
+   already codes against, and deciding there whether source and read-time
+   stamping (rule 2) and staleness (rule 3) live in the base or in each
+   connector.
+
+   Once it imports: `JVTOEcosystemConnector.fetch_raw()` returns a fixed
    `{"source": "jvto-ekosistem", "status": "ready_for_sync"}` and touches
-   nothing — no real read, no staleness tracking, yet.
+   nothing, and `normalize()` passes that through under `source_repo` /
+   `source_owner` with no read time. So even repaired, it is a stub — no
+   real read, no staleness tracking.
 
 ## Create
 
