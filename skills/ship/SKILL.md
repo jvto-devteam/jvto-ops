@@ -44,6 +44,13 @@ response to a failure.
 
 ## Checked by
 
+`scripts/check-live-tokens.mjs` — run this before a deploy. A live-number
+token (`{PACKAGE_COUNT_SURABAYA}`, `{GOOGLE_RATING}`, …) that a jvto-web page
+renders without resolving reaches the reader as literal text; four routes
+were doing this on 2026-08-27 and no gate noticed, because `check-answer-first`
+reads the SOURCE, where the token is correct by design. It needs both repos
+and a fresh `render:web-content`, so it is manual rather than hooked.
+
 `scripts/check-script-wiring.mjs` — a workflow calling an npm script that
 doesn't exist. jvto-web's `ci.yml` calls `npm run sync:trust`, removed from
 `package.json` on 2026-08-15 in commit `1542fb08`; the last green CI run was

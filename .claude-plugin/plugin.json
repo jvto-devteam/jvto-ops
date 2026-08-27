@@ -1,7 +1,7 @@
 {
   "name": "jvto-ops",
   "description": "Operational rules for the JVTO content ecosystem: answer-first editorial, evidence publishing, entity-graph integrity, and the two-repo deploy order \u2014 as skills that create and repair, plus checkers wired to hooks.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "JVTO Dev Team"
   },
