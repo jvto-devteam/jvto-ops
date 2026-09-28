@@ -158,6 +158,59 @@ test("pre-push whose command is a dry-run push still selects check-graph-integri
   assert.equal(selectChecker("pre-push", payload), "check-graph-integrity");
 });
 
+// The graph gate protects the two JVTO repos, not every repo on the machine.
+// Before this scoping, a push from any unrelated repo (wa-inbox,
+// new-backoffice, ...) was denied whenever jvto-ekosistem's graph had an
+// error — a finding the pusher could neither see nor fix from where they were.
+test("pre-push from a repo outside both JVTO repos selects nothing", () => {
+  const payload = { cwd: path.join(tmpdir(), "some-other-repo"), tool_input: { command: "git push origin main" } };
+  assert.equal(selectChecker("pre-push", payload), null);
+});
+
+test("pre-push from inside the ekosistem repo selects check-graph-integrity", () => {
+  const payload = { cwd: path.join(ekoRoot, "5-experience-engine"), tool_input: { command: "git push origin main" } };
+  assert.equal(selectChecker("pre-push", payload), "check-graph-integrity");
+});
+
+test("pre-push from inside the web repo selects check-graph-integrity", () => {
+  const payload = { cwd: webRoot, tool_input: { command: "git push" } };
+  assert.equal(selectChecker("pre-push", payload), "check-graph-integrity");
+});
+
+test("pre-push from a look-alike sibling of the ekosistem repo selects nothing", () => {
+  const payload = { cwd: `${ekoRoot}-backup`, tool_input: { command: "git push" } };
+  assert.equal(selectChecker("pre-push", payload), null);
+});
+
+test("pre-push that cd's into the ekosistem repo first selects check-graph-integrity", () => {
+  const payload = {
+    cwd: path.join(tmpdir(), "some-other-repo"),
+    tool_input: { command: `cd "${ekoRoot}" && git push origin main` },
+  };
+  assert.equal(selectChecker("pre-push", payload), "check-graph-integrity");
+});
+
+test("pre-push that cd's out of the ekosistem repo first selects nothing", () => {
+  const payload = {
+    cwd: ekoRoot,
+    tool_input: { command: `cd ${path.join(tmpdir(), "some-other-repo")} && git push origin main` },
+  };
+  assert.equal(selectChecker("pre-push", payload), null);
+});
+
+test("pre-push with git -C pointing into the web repo selects check-graph-integrity", () => {
+  const payload = {
+    cwd: path.join(tmpdir(), "some-other-repo"),
+    tool_input: { command: `git -C ${webRoot} push origin main` },
+  };
+  assert.equal(selectChecker("pre-push", payload), "check-graph-integrity");
+});
+
+test("pre-push with no cwd at all still selects check-graph-integrity (fail-closed)", () => {
+  const payload = { tool_input: { command: "git push origin main" } };
+  assert.equal(selectChecker("pre-push", payload), "check-graph-integrity");
+});
+
 test("an unknown mode selects nothing", () => {
   assert.equal(selectChecker("something-else", { tool_input: { file_path: "x.tsx" } }), null);
 });

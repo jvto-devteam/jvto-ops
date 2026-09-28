@@ -29,6 +29,7 @@
 // spawning a child process or wiring up real stdin.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ekosystemRoot, webRoot } from "./lib/repos.mjs";
@@ -67,23 +68,80 @@ const LEADING_SUDO_RE = /^sudo\s+/;
 // Deliberately also matches `git push --dry-run`: a dry run is a rehearsal
 // of a push, and checking the graph before one is consistent and harmless,
 // not a false positive — so this is left matching on purpose.
-const GIT_PUSH_INVOCATION_RE = /^git(?:\s+-\S+)*\s+push\b/;
+//
+// Global options before `push` may take an argument (`git -C <dir> push`,
+// `git -c key=val push`). The old pattern only allowed dash-words there, so
+// `git -C ../jvto-ekosistem push` was never recognized as a push at all and
+// walked straight past the gate. Group 1 captures the options so the `-C`
+// directory can be read back out.
+const GIT_PUSH_INVOCATION_RE = /^git((?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|-\S+))*)\s+push\b/;
+const GIT_DIR_OPTION_RE = /-C\s+(?:"([^"]*)"|'([^']*)'|(\S+))/g;
+const CD_RE = /^cd(?:\s+(?:"([^"]*)"|'([^']*)'|(\S+)))?\s*$/;
 
-function isGitPushInvocation(segment) {
+function stripInvocationPrefix(segment) {
   let s = segment.trim();
   while (LEADING_ASSIGNMENT_RE.test(s)) {
     s = s.replace(LEADING_ASSIGNMENT_RE, "");
   }
-  s = s.replace(LEADING_SUDO_RE, "");
-  return GIT_PUSH_INVOCATION_RE.test(s);
+  return s.replace(LEADING_SUDO_RE, "");
 }
 
-function commandInvokesGitPush(command) {
+function isGitPushInvocation(segment) {
+  return GIT_PUSH_INVOCATION_RE.test(stripInvocationPrefix(segment));
+}
+
+function splitSegments(command) {
   return command
     .split(SHELL_SEPARATOR_RE)
     .map((segment) => segment.trim())
-    .filter(Boolean)
-    .some(isGitPushInvocation);
+    .filter(Boolean);
+}
+
+function commandInvokesGitPush(command) {
+  return splitSegments(command).some(isGitPushInvocation);
+}
+
+// `~` and `~/x` are expanded the way the shell would; anything relative is
+// resolved against the directory the shell is in at that point. A relative
+// target with no known base can't be resolved and yields null ("unknown").
+function resolveDir(base, target) {
+  let t = target;
+  if (t === "~") t = os.homedir();
+  else if (t.startsWith("~/")) t = path.join(os.homedir(), t.slice(2));
+  if (path.isAbsolute(t)) return path.resolve(t);
+  return base ? path.resolve(base, t) : null;
+}
+
+/**
+ * pushTargetDirs(command, cwd) -> Array<string | null>
+ *
+ * The directory each `git push` in the command actually runs in: the hook's
+ * cwd, moved by any `cd <dir>` segment before it, then by the push's own
+ * `git -C <dir>` options. null means "could not be determined" (no cwd from
+ * the hook, `cd -`, a relative path with no base) — the caller treats that
+ * as in scope, so an unknown push is still checked rather than waved through.
+ */
+function pushTargetDirs(command, cwd) {
+  let dir = typeof cwd === "string" && cwd ? path.resolve(cwd) : null;
+  const targets = [];
+  for (const segment of splitSegments(command)) {
+    const cd = segment.match(CD_RE);
+    if (cd) {
+      const target = cd[1] ?? cd[2] ?? cd[3];
+      if (target === undefined) dir = os.homedir();
+      else if (target === "-") dir = null;
+      else dir = resolveDir(dir, target);
+      continue;
+    }
+    const push = stripInvocationPrefix(segment).match(GIT_PUSH_INVOCATION_RE);
+    if (!push) continue;
+    let pushDir = dir;
+    for (const opt of (push[1] ?? "").matchAll(GIT_DIR_OPTION_RE)) {
+      pushDir = resolveDir(pushDir, opt[1] ?? opt[2] ?? opt[3]);
+    }
+    targets.push(pushDir);
+  }
+  return targets;
 }
 
 /**
@@ -143,10 +201,19 @@ export function selectChecker(mode, payload) {
 
   if (mode === "pre-push") {
     const command = payload?.tool_input?.command;
-    if (typeof command === "string" && commandInvokesGitPush(command)) {
-      return "check-graph-integrity";
-    }
-    return null;
+    if (typeof command !== "string" || !commandInvokesGitPush(command)) return null;
+
+    // The graph gate protects jvto-ekosistem and jvto-web, not every repo on
+    // the machine. Unscoped, a push from wa-inbox or new-backoffice was
+    // denied whenever the ekosistem graph had an error — a finding the pusher
+    // could neither see nor fix from where they stood. A push whose directory
+    // is unknown (null) is still checked: fail-closed, the original behavior.
+    const eko = ekosystemRoot();
+    const web = webRoot();
+    const inScope = pushTargetDirs(command, payload?.cwd).some(
+      (dir) => dir === null || isWithin(eko, dir) || isWithin(web, dir),
+    );
+    return inScope ? "check-graph-integrity" : null;
   }
 
   return null;
